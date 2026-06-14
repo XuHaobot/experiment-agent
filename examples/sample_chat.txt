@@ -1,0 +1,16 @@
+今天想用 YOLOv8 在自定义缺陷检测数据集上做一次训练。
+
+数据集路径：datasets/defect_v1
+模型：yolov8n.pt
+
+运行命令：
+CUDA_VISIBLE_DEVICES=0 python train.py --data datasets/defect_v1/data.yaml --model yolov8n.pt --epochs 50 --batch 16 --imgsz 640 --lr0 0.01
+
+第一次运行报错：
+RuntimeError: CUDA out of memory. Tried to allocate 512.00 MiB.
+
+排查后发现 batch size 太大，显存不够。
+解决方法：把 --batch 16 改成 --batch 8，训练可以正常启动。
+
+结论：当前配置可以跑通，但还没有比较 mAP。
+下一步：尝试 yolov8s.pt，并尝试 --batch 4 和 --lr0 0.005，同时比较不同 batch size 对训练速度和 mAP 的影响。
