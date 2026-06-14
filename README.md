@@ -90,7 +90,7 @@ Agent 自动调用 `search_records` + `analyze_data`，输出结构化归因：
 
 ### 3. 知识图谱：可视化"实验-命令-参数-报错-方案"全链路
 
-![知识图谱可视化](screenshots/graph_visualization.png)
+<img width="1606" height="929" alt="152adaab4cce0d05f8f64d3f3eb22416" src="https://github.com/user-attachments/assets/b0702cf3-8e7c-429e-9376-245f9b5406c1" />
 
 图谱自动从结构化记录中抽取：
 
