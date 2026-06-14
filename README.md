@@ -53,6 +53,7 @@ Agent 自动调用 `search_records` + `analyze_data`，输出结构化归因：
 | HDFS 写入失败 | `could only be replicated to 0 nodes` | DataNode 未启动 / 副本数 > 节点数 | 重新格式化 HDFS 或调整 `dfs.replication` |
 
 > ⬆️ 真实运行结果（基于 Hadoop 3.3.5 + HBase 2.4.17 实验）
+<img width="1608" height="930" alt="c128128cb305b3e3886ec70c1cb03bdc" src="https://github.com/user-attachments/assets/b467509f-aa4a-4273-80b1-00ce7860afdc" />
 
 ### 2. 复盘报告：自动生成 Markdown 实验复盘文档
 
@@ -87,6 +88,7 @@ Agent 自动调用 `search_records` + `analyze_data`，输出结构化归因：
 ```
 
 > ⬆️ 报告按时间顺序组织，结构清晰，可直接贴入实验周报
+![Uploading 49d841dc05557a3f59b02ce2cfaa11c1.png…]()
 
 ### 3. 知识图谱：可视化"实验-命令-参数-报错-方案"全链路
 
