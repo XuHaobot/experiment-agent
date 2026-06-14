@@ -88,11 +88,9 @@ Agent 自动调用 `search_records` + `analyze_data`，输出结构化归因：
 ```
 
 > ⬆️ 报告按时间顺序组织，结构清晰，可直接贴入实验周报
-![Uploading 49d841dc05557a3f59b02ce2cfaa11c1.png…]()
-
+    <img width="1616" height="941" alt="49d841dc05557a3f59b02ce2cfaa11c1" src="https://github.com/user-attachments/assets/63a249de-2c90-400a-bf35-cad1e9f93487" />
 ### 3. 知识图谱：可视化"实验-命令-参数-报错-方案"全链路
 
-<img width="1606" height="929" alt="152adaab4cce0d05f8f64d3f3eb22416" src="https://github.com/user-attachments/assets/b0702cf3-8e7c-429e-9376-245f9b5406c1" />
 
 图谱自动从结构化记录中抽取：
 
@@ -102,6 +100,7 @@ Agent 自动调用 `search_records` + `analyze_data`，输出结构化归因：
 点击任意节点查看实体详情，支持关键词搜索、图例筛选、关系定位。
 
 > ⬆️ 真实运行结果（基于 graph-20260614-151321-247151.json）
+<img width="1606" height="929" alt="152adaab4cce0d05f8f64d3f3eb22416" src="https://github.com/user-attachments/assets/e323ff10-cce5-4e0c-8ab6-cc2f00d7073a" />
 
 ---
 
