@@ -1,6 +1,8 @@
 import json
+import os
 import sys
 from pathlib import Path
+from typing import List
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,19 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# 公网只读展示模式：true 时禁用所有写接口（上传/新建实验/删除/重建索引），
+# 访客只能对话 + 检索种子记录。配置方式：环境变量 DEMO_READONLY=true 或 .env。
+DEMO_READONLY = os.getenv("DEMO_READONLY", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _assert_writable():
+    """写接口守卫：只读模式下返回 403。"""
+    if DEMO_READONLY:
+        raise HTTPException(
+            status_code=403,
+            detail="当前为演示模式（只读），不支持上传/新建/删除。请在本地实例使用完整功能。",
+        )
 
 from src.agent import ExperimentAgent
 from src.agent_v2 import AgentV2
@@ -28,9 +43,17 @@ from src.storage import (
 from src.tools.report_tool import generate_markdown_report
 from src.tools.search_tool import search_records, hybrid_search
 from src.tools.data_analysis_tool import evaluate_answer
+from src.faq_store import get_faq_store, seed_faq_from_records, mine_faq_from_record
+from src.eval_runner import run_eval
 
 
 ensure_storage_dirs()
+
+# 启动时从已有 records 播种 FAQ 知识库（仅当库为空），让公网演示开箱即见内容。
+try:
+    seed_faq_from_records()
+except Exception:
+    pass
 
 
 def _try_vector_index(record: dict):
@@ -42,6 +65,37 @@ def _try_vector_index(record: dict):
             store.index_record(record)
     except Exception:
         pass  # 向量库不可用时不影响主流程
+
+
+# ---------------------------------------------------------------------------
+# FAQ 知识库（报错沉淀飞轮）辅助函数
+# ---------------------------------------------------------------------------
+
+def _mine_faq_from_record(record: dict):
+    """成功分析后，从记录中沉淀「报错 → 解决方案」FAQ。静默失败。"""
+    try:
+        store = get_faq_store()
+        mine_faq_from_record(record, store)
+    except Exception:
+        pass
+
+
+def _classify_system_error(exc: Exception) -> tuple[str, str]:
+    """将运行时异常归类为签名 + 排查提示，用于上传失败时给用户展示常见问题。"""
+    msg = str(exc)
+    lowered = msg.lower()
+    if "permission" in lowered:
+        return ("io_permission", "文件写入权限不足，请检查服务端 data 目录权限。")
+    if "encode" in lowered or "utf-8" in lowered or "decode" in lowered:
+        return ("encoding", "文本编码无法识别，请使用 UTF-8 编码的文件/文本。")
+    if "json" in lowered:
+        return ("json_write", "记录写入失败：数据结构异常，请检查输入是否包含异常字符。")
+    if "out of memory" in lowered or "memory" in lowered:
+        return ("oom", "分析过程内存不足，请减小单次输入体积或分批上传。")
+    if "timeout" in lowered:
+        return ("timeout", "调用大模型超时，请检查网络或稍后重试。")
+    return ("unknown", "分析过程发生未知错误，请检查输入长度与格式后重试。")
+
 
 app = FastAPI(
     title="实验记录整理 Agent API",
@@ -61,85 +115,185 @@ app.add_middleware(
 @app.get("/api/health")
 def health_check():
     client = LLMClient.from_env()
+    emb = None
+    try:
+        from src.vector_store import get_vector_store
+        emb = get_vector_store().is_ready
+    except Exception:
+        emb = False
     return {
         "status": "ok",
+        "demo_readonly": DEMO_READONLY,
         "llm_configured": client.is_configured,
         "llm_model": client.model if client.is_configured else None,
+        "embedding_ready": emb,
     }
 
 
 @app.post("/api/analyze")
 async def analyze_upload(file: UploadFile = File(...)):
     """上传实验记录文件，执行完整分析流水线"""
+    _assert_writable()
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
     try:
         text = await read_uploaded_file_async(file)
+        raw_path = save_raw_text(file.filename or "upload", text)
+
+        agent = ExperimentAgent()
+        record = agent.analyze(text, source_name=file.filename)
+
+        record_path = save_record(record)
+        report_md = generate_markdown_report(record)
+        report_path = save_report(record["id"], report_md)
+
+        graph = build_graph_from_record(record)
+        graph_path = save_graph(graph)
+
+        # 自动索引到向量库（静默失败，不影响主流程）
+        _try_vector_index(record)
+
+        # 飞轮：成功分析后沉淀报错→解决方案 FAQ
+        _mine_faq_from_record(record)
+
+        return {
+            "record": record,
+            "report": report_md,
+            "graph": graph,
+            "paths": {
+                "raw": str(raw_path),
+                "record": str(record_path),
+                "report": str(report_path),
+                "graph": str(graph_path),
+            },
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"文件读取失败: {str(e)}")
-
-    raw_path = save_raw_text(file.filename or "upload", text)
-
-    agent = ExperimentAgent()
-    record = agent.analyze(text, source_name=file.filename)
-
-    record_path = save_record(record)
-    report_md = generate_markdown_report(record)
-    report_path = save_report(record["id"], report_md)
-
-    graph = build_graph_from_record(record)
-    graph_path = save_graph(graph)
-
-    # 自动索引到向量库（静默失败，不影响主流程）
-    _try_vector_index(record)
-
-    return {
-        "record": record,
-        "report": report_md,
-        "graph": graph,
-        "paths": {
-            "raw": str(raw_path),
-            "record": str(record_path),
-            "report": str(report_path),
-            "graph": str(graph_path),
-        },
-    }
+        sig, hint = _classify_system_error(e)
+        try:
+            get_faq_store().log_system_error(sig, str(e), hint)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"{hint}（错误签名：{sig}）")
 
 
 @app.post("/api/analyze/text")
 async def analyze_text(body: dict):
     """分析纯文本内容（无需上传文件）"""
+    _assert_writable()
     text = body.get("text", "")
     if not text.strip():
         raise HTTPException(status_code=400, detail="文本内容不能为空")
 
-    source = body.get("source", "text-input")
-    raw_path = save_raw_text(source, text)
+    try:
+        source = body.get("source", "text-input")
+        raw_path = save_raw_text(source, text)
 
-    agent = ExperimentAgent()
-    record = agent.analyze(text, source_name=source)
+        agent = ExperimentAgent()
+        record = agent.analyze(text, source_name=source)
 
-    record_path = save_record(record)
-    report_md = generate_markdown_report(record)
-    report_path = save_report(record["id"], report_md)
+        record_path = save_record(record)
+        report_md = generate_markdown_report(record)
+        report_path = save_report(record["id"], report_md)
 
-    graph = build_graph_from_record(record)
-    graph_path = save_graph(graph)
+        graph = build_graph_from_record(record)
+        graph_path = save_graph(graph)
 
-    # 自动索引到向量库
-    _try_vector_index(record)
+        # 自动索引到向量库
+        _try_vector_index(record)
+
+        # 飞轮：成功分析后沉淀报错→解决方案 FAQ
+        _mine_faq_from_record(record)
+
+        return {
+            "record": record,
+            "report": report_md,
+            "graph": graph,
+            "paths": {
+                "raw": str(raw_path),
+                "record": str(record_path),
+                "report": str(report_path),
+                "graph": str(graph_path),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        sig, hint = _classify_system_error(e)
+        try:
+            get_faq_store().log_system_error(sig, str(e), hint)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"{hint}（错误签名：{sig}）")
+
+
+@app.post("/api/analyze/batch")
+async def analyze_batch(files: List[UploadFile] = File(...)):
+    """批量上传分析：一次提交多个实验记录文件，按序执行完整分析流水线。
+
+    返回汇总：total / success / failed 计数 + 每条成功结果 + 失败明细。
+    演示模式（DEMO_READONLY）下禁用。
+    """
+    _assert_writable()
+    if not files:
+        raise HTTPException(status_code=400, detail="至少需要上传一个文件")
+    if len(files) > 50:
+        raise HTTPException(status_code=400, detail="单次最多上传 50 个文件")
+
+    results = []
+    errors = []
+    for file in files:
+        if not file.filename:
+            errors.append({"filename": None, "error": "文件名不能为空"})
+            continue
+        try:
+            text = await read_uploaded_file_async(file)
+            raw_path = save_raw_text(file.filename, text)
+
+            agent = ExperimentAgent()
+            record = agent.analyze(text, source_name=file.filename)
+
+            record_path = save_record(record)
+            report_md = generate_markdown_report(record)
+            report_path = save_report(record["id"], report_md)
+
+            graph = build_graph_from_record(record)
+            graph_path = save_graph(graph)
+
+            # 自动索引到向量库（静默失败，不影响主流程）
+            _try_vector_index(record)
+
+            # 飞轮：成功分析后沉淀报错→解决方案 FAQ
+            _mine_faq_from_record(record)
+
+            results.append({
+                "filename": file.filename,
+                "record": record,
+                "report": report_md,
+                "graph": graph,
+                "paths": {
+                    "raw": str(raw_path),
+                    "record": str(record_path),
+                    "report": str(report_path),
+                    "graph": str(graph_path),
+                },
+            })
+        except Exception as e:
+            sig, hint = _classify_system_error(e)
+            try:
+                get_faq_store().log_system_error(sig, str(e), hint)
+            except Exception:
+                pass
+            errors.append({"filename": file.filename, "error": str(e), "hint": hint, "signature": sig})
 
     return {
-        "record": record,
-        "report": report_md,
-        "graph": graph,
-        "paths": {
-            "raw": str(raw_path),
-            "record": str(record_path),
-            "report": str(report_path),
-            "graph": str(graph_path),
-        },
+        "total": len(files),
+        "success": len(results),
+        "failed": len(errors),
+        "results": results,
+        "errors": errors,
     }
 
 
@@ -358,6 +512,19 @@ async def ask_question(body: dict):
     for g in graph_hits[:5]:
         contexts.append({"type": "graph_entity", "name": g["name"], "kind": g["type"], "summary": g["summary"]})
 
+    # FAQ 知识库增强：检索历史沉淀的「报错 → 解决方案」，让回答随使用持续变好（飞轮）
+    try:
+        faq_hits = get_faq_store().search_domain_faq(question, top_k=3)
+        for faq in faq_hits:
+            contexts.append({
+                "type": "faq",
+                "error_text": faq["error_text"],
+                "solution_text": faq["solution_text"],
+                "occurrences": faq["count"],
+            })
+    except Exception:
+        pass
+
     # 构建 prompt
     context_str = json.dumps(contexts, ensure_ascii=False, indent=2)
     prompt = (
@@ -397,6 +564,48 @@ async def evaluate(body: dict):
 
 
 # ============================================================
+# FAQ 知识库 API（报错沉淀飞轮）
+# ============================================================
+
+@app.get("/api/faq")
+def list_faq():
+    """获取 FAQ 知识库概览：领域 FAQ（报错→解决方案）+ 系统常见问题，按出现次数排序。"""
+    store = get_faq_store()
+    return {
+        "domain": store.list_domain_faq(top_k=30),
+        "system": store.list_system_errors(top_k=20),
+        "domain_count": store.domain_count(),
+    }
+
+
+@app.post("/api/faq/search")
+async def search_faq(body: dict):
+    """按关键词检索领域 FAQ（报错→解决方案），用于上传失败时给用户的排查提示，以及问答增强。"""
+    query = body.get("query", "").strip()
+    if not query:
+        return {"results": []}
+    store = get_faq_store()
+    return {"results": store.search_domain_faq(query, top_k=body.get("top_k", 5))}
+
+
+@app.post("/api/evaluate/run")
+async def run_eval_endpoint(body: dict | None = None):
+    """评测集自动化回归（LLM-as-Judge + 字段覆盖率）。
+
+    用于「每次改动模型/提示词，自动跑评测集确保指标不降质」的 CI 式回归。
+    使用服务端 LLM 配置，会消耗 token，故公网只读模式下禁用。
+    """
+    _assert_writable()
+    dataset_path = (body or {}).get("dataset_path")
+    try:
+        return run_eval(dataset_path=dataset_path)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"评测运行失败: {e}")
+
+
+# ============================================================
 # AgentV2 Chat API (Function Calling)
 # ============================================================
 
@@ -412,9 +621,12 @@ async def chat(body: dict):
         raise HTTPException(status_code=400, detail="问题不能为空")
 
     session_id = body.get("session_id")
+    tenant_id = body.get("tenant_id", "")  # 匿名租户隔离（不落盘）
+    llm_config = body.get("llm_config")  # BYOK：用户自带 chat Key（不落盘）
+    embedding_config = body.get("embedding_config")  # BYOK：用户自带 Embedding Key（不落盘）
 
     memory = get_memory_manager()
-    session_id, session = memory.get_or_create_session(session_id)
+    session_id, session = memory.get_or_create_session(session_id, tenant_id)
 
     # 获取上下文窗口
     context = session.get_context_window(max_turns=20)
@@ -422,7 +634,12 @@ async def chat(body: dict):
 
     # 调用 AgentV2
     agent = AgentV2(max_iterations=5)
-    result = agent.chat(question, conversation_history=context)
+    result = agent.chat(
+        question,
+        conversation_history=context,
+        llm_config=llm_config,
+        embedding_config=embedding_config,
+    )
 
     # 将本轮新增的对话（含工具调用）记入会话
     conv_messages = result.get("conversation_messages", [])
@@ -456,12 +673,15 @@ async def chat_stream(body: dict):
         raise HTTPException(status_code=400, detail="问题不能为空")
 
     session_id = body.get("session_id")
+    tenant_id = body.get("tenant_id", "")  # 匿名租户隔离（不落盘）
+    llm_config = body.get("llm_config")  # BYOK：用户自带 chat Key（不落盘）
+    embedding_config = body.get("embedding_config")  # BYOK：用户自带 Embedding Key（不落盘）
 
     async def generate():
         import asyncio
 
         memory = get_memory_manager()
-        sid, session = memory.get_or_create_session(session_id)
+        sid, session = memory.get_or_create_session(session_id, tenant_id)
 
         # 推送 session_id
         yield f"data: {json.dumps({'type': 'session_id', 'session_id': sid}, ensure_ascii=False)}\n\n"
@@ -474,7 +694,12 @@ async def chat_stream(body: dict):
         full_answer = ""
         trace_steps = []
 
-        for event in agent.chat_stream(question, conversation_history=context):
+        for event in agent.chat_stream(
+            question,
+            conversation_history=context,
+            llm_config=llm_config,
+            embedding_config=embedding_config,
+        ):
             event_type = event.get("type")
 
             if event_type == "trace":
@@ -522,6 +747,7 @@ async def vector_store_stats():
 @app.post("/api/vector-store/rebuild")
 async def rebuild_vector_index():
     """重建向量索引（从 records 目录重新索引所有记录）。"""
+    _assert_writable()
     try:
         from src.vector_store import VectorStore
         store = VectorStore()
@@ -538,6 +764,7 @@ async def rebuild_vector_index():
 @app.post("/api/vector-store/index/{record_id}")
 async def index_single_record(record_id: str):
     """将单条记录索引到向量库。"""
+    _assert_writable()
     try:
         from src.vector_store import VectorStore
         store = VectorStore()
@@ -562,25 +789,25 @@ async def index_single_record(record_id: str):
 # ============================================================
 
 @app.get("/api/sessions")
-async def list_sessions():
-    """列出所有活跃对话会话。"""
+async def list_sessions(tenant_id: str = ""):
+    """列出指定租户的活跃对话会话（公网按浏览器隔离）。"""
     memory = get_memory_manager()
-    return {"sessions": memory.list_sessions()}
+    return {"sessions": memory.list_sessions(tenant_id)}
 
 
 @app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str):
-    """删除指定对话会话。"""
+async def delete_session(session_id: str, tenant_id: str = ""):
+    """删除指定对话会话（校验租户归属）。"""
     memory = get_memory_manager()
-    deleted = memory.delete_session(session_id)
+    deleted = memory.delete_session(session_id, tenant_id)
     return {"ok": deleted}
 
 
 @app.get("/api/sessions/{session_id}/history")
-async def get_session_history(session_id: str):
-    """获取指定会话的对话历史。"""
+async def get_session_history(session_id: str, tenant_id: str = ""):
+    """获取指定会话的对话历史（校验租户归属）。"""
     memory = get_memory_manager()
-    session = memory.get_session(session_id)
+    session = memory.get_session(session_id, tenant_id)
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
 
@@ -638,6 +865,7 @@ async def list_experiments():
 
 @app.post("/api/experiments")
 async def create_experiment(body: dict):
+    _assert_writable()
     name = body.get("name", "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="实验名称不能为空")
@@ -657,6 +885,7 @@ async def create_experiment(body: dict):
 
 @app.delete("/api/experiments/{exp_id}")
 async def delete_experiment(exp_id: str):
+    _assert_writable()
     experiments = _load_experiments()
     experiments = [e for e in experiments if e["id"] != exp_id]
     _save_experiments(experiments)
@@ -666,6 +895,7 @@ async def delete_experiment(exp_id: str):
 @app.delete("/api/records/{record_id}")
 async def delete_record(record_id: str):
     """删除实验记录及其关联的报告和图谱"""
+    _assert_writable()
     import glob as _glob
     records_dir = DATA_DIR / "records"
     deleted = False
@@ -699,6 +929,7 @@ async def delete_record(record_id: str):
 
 @app.post("/api/experiments/{exp_id}/records/{record_id}")
 async def add_record_to_experiment(exp_id: str, record_id: str):
+    _assert_writable()
     experiments = _load_experiments()
     for exp in experiments:
         if exp["id"] == exp_id:

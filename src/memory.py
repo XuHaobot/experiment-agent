@@ -61,6 +61,7 @@ class ConversationSession:
     turns: list[ConversationTurn] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     last_active: float = field(default_factory=time.time)
+    tenant_id: str = ""  # 匿名租户标识，用于公网多用户隔离
 
     # 持久化回调（由 MemoryManager 注入）
     _on_turn_added: Callable | None = field(default=None, repr=False)
@@ -127,7 +128,8 @@ class _SQLiteStore:
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
                 created_at REAL NOT NULL,
-                last_active REAL NOT NULL
+                last_active REAL NOT NULL,
+                tenant_id TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,13 +141,21 @@ class _SQLiteStore:
                 FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions(tenant_id);
         """)
+        # 迁移：旧库可能没有 tenant_id 列，安全补列
+        try:
+            self._conn.execute(
+                "ALTER TABLE sessions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''"
+            )
+        except Exception:
+            pass
         self._conn.commit()
 
-    def save_session(self, session_id: str, created_at: float, last_active: float):
+    def save_session(self, session_id: str, created_at: float, last_active: float, tenant_id: str = ""):
         self._conn.execute(
-            "INSERT OR REPLACE INTO sessions (session_id, created_at, last_active) VALUES (?, ?, ?)",
-            (session_id, created_at, last_active),
+            "INSERT OR REPLACE INTO sessions (session_id, created_at, last_active, tenant_id) VALUES (?, ?, ?, ?)",
+            (session_id, created_at, last_active, tenant_id),
         )
         self._conn.commit()
 
@@ -172,7 +182,7 @@ class _SQLiteStore:
     def load_all_sessions(self) -> list[ConversationSession]:
         """从 SQLite 加载所有会话及其对话轮次。"""
         rows = self._conn.execute(
-            "SELECT session_id, created_at, last_active FROM sessions ORDER BY last_active DESC"
+            "SELECT session_id, created_at, last_active, tenant_id FROM sessions ORDER BY last_active DESC"
         ).fetchall()
 
         sessions = []
@@ -182,6 +192,7 @@ class _SQLiteStore:
                 created_at=row["created_at"],
                 last_active=row["last_active"],
             )
+            session.tenant_id = row["tenant_id"] or ""
             turn_rows = self._conn.execute(
                 "SELECT role, content, timestamp, metadata FROM turns WHERE session_id = ? ORDER BY id",
                 (row["session_id"],),
@@ -215,11 +226,16 @@ class MemoryManager:
     内存 + SQLite 双层存储：
     - 内存缓存保证读取速度
     - SQLite 持久化保证重启不丢数据
+
+    公网展示（DEMO_READONLY）下按 tenant_id 隔离：每个浏览器一个匿名租户，
+    会话列表/历史/删除都限定在自己的租户内，淘汰也只清理同租户最旧的会话，
+    避免陌生人串台、互不挤压。
     """
 
-    def __init__(self, max_sessions: int = 100, db_path: Path | None = None):
+    def __init__(self, max_sessions_per_tenant: int = 20, db_path: Path | None = None):
         self.active_sessions: dict[str, ConversationSession] = {}
-        self.max_sessions = max_sessions
+        self._session_tenant: dict[str, str] = {}  # session_id -> tenant_id
+        self.max_sessions_per_tenant = max_sessions_per_tenant
 
         # 初始化 SQLite 存储
         self._store = _SQLiteStore(db_path or DB_PATH)
@@ -231,71 +247,84 @@ class MemoryManager:
         for session in sessions:
             self._inject_callbacks(session)
             self.active_sessions[session.session_id] = session
+            self._session_tenant[session.session_id] = session.tenant_id
 
     def _inject_callbacks(self, session: ConversationSession):
         """为会话注入持久化回调函数。"""
         session._on_turn_added = self._store.save_turn
         session._on_last_active_updated = self._store.update_last_active
 
-    def create_session(self) -> str:
+    def create_session(self, tenant_id: str = "") -> str:
         """创建新的对话会话，返回 session_id。"""
-        if len(self.active_sessions) >= self.max_sessions:
-            self._cleanup_old_sessions()
+        # 仅清理同租户最旧的会话，不影响其他租户
+        tenant_sids = [sid for sid, t in self._session_tenant.items() if t == tenant_id]
+        if len(tenant_sids) >= self.max_sessions_per_tenant:
+            self._cleanup_old_sessions(tenant_id)
 
         session_id = f"session-{uuid.uuid4().hex[:12]}"
-        session = ConversationSession(session_id=session_id)
+        session = ConversationSession(session_id=session_id, tenant_id=tenant_id)
         self._inject_callbacks(session)
 
         # 注入 system prompt（会触发持久化）
         session.add_message("system", SYSTEM_PROMPT)
 
         # 持久化 session 元数据
-        self._store.save_session(session_id, session.created_at, session.last_active)
+        self._store.save_session(session_id, session.created_at, session.last_active, tenant_id)
 
         self.active_sessions[session_id] = session
+        self._session_tenant[session_id] = tenant_id
         return session_id
 
-    def get_session(self, session_id: str) -> ConversationSession | None:
-        """获取指定会话。"""
-        return self.active_sessions.get(session_id)
+    def get_session(self, session_id: str, tenant_id: str = "") -> ConversationSession | None:
+        """获取指定会话（校验租户归属）。"""
+        session = self.active_sessions.get(session_id)
+        if session and (not tenant_id or self._session_tenant.get(session_id) == tenant_id):
+            return session
+        return None
 
-    def get_or_create_session(self, session_id: str | None) -> tuple[str, ConversationSession]:
+    def get_or_create_session(
+        self, session_id: str | None, tenant_id: str = ""
+    ) -> tuple[str, ConversationSession]:
         """获取或创建会话。返回 (session_id, session)。"""
         if session_id:
-            session = self.active_sessions.get(session_id)
+            session = self.get_session(session_id, tenant_id)
             if session:
                 return session_id, session
 
-        new_id = self.create_session()
+        new_id = self.create_session(tenant_id)
         return new_id, self.active_sessions[new_id]
 
-    def delete_session(self, session_id: str) -> bool:
-        """删除指定会话（内存 + SQLite）。"""
+    def delete_session(self, session_id: str, tenant_id: str = "") -> bool:
+        """删除指定会话（校验租户归属，内存 + SQLite）。"""
+        if self._session_tenant.get(session_id) != tenant_id:
+            return False  # 不属于该租户，拒绝
         if session_id in self.active_sessions:
             del self.active_sessions[session_id]
-            self._store.delete_session(session_id)
-            return True
-        # 可能只存在于 SQLite 中
-        try:
-            self._store.delete_session(session_id)
-            return True
-        except Exception:
-            return False
+        self._store.delete_session(session_id)
+        self._session_tenant.pop(session_id, None)
+        return True
 
-    def list_sessions(self) -> list[dict]:
-        """列出所有活跃会话的摘要。"""
-        return [s.to_summary() for s in self.active_sessions.values()]
+    def list_sessions(self, tenant_id: str = "") -> list[dict]:
+        """列出指定租户的活跃会话摘要。"""
+        return [
+            s.to_summary()
+            for sid, s in self.active_sessions.items()
+            if self._session_tenant.get(sid) == tenant_id
+        ]
 
-    def _cleanup_old_sessions(self):
-        """清理最旧的 20% 会话。"""
-        sorted_sessions = sorted(
-            self.active_sessions.items(),
-            key=lambda x: x[1].last_active,
-        )
+    def _cleanup_old_sessions(self, tenant_id: str = ""):
+        """清理指定租户最旧的 20% 会话。"""
+        tenant_sessions = [
+            (sid, self.active_sessions[sid])
+            for sid in self.active_sessions
+            if self._session_tenant.get(sid) == tenant_id
+        ]
+        sorted_sessions = sorted(tenant_sessions, key=lambda x: x[1].last_active)
         remove_count = max(1, len(sorted_sessions) // 5)
         for sid, _ in sorted_sessions[:remove_count]:
             self._store.delete_session(sid)
-            del self.active_sessions[sid]
+            self.active_sessions.pop(sid, None)
+            self._session_tenant.pop(sid, None)
 
 
 # ---------------------------------------------------------------------------

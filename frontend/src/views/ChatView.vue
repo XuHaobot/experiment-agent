@@ -1,9 +1,20 @@
 <template>
   <div class="chat-view">
+    <!-- 演示模式横幅 -->
+    <div v-if="demoReadOnly" class="demo-banner">
+      🔒 公网演示模式：仅可对话与检索内置实验记录，暂不开放上传/新建/删除。体验完整功能请在本地运行项目。
+    </div>
+    <div class="chat-body">
     <!-- Sidebar: session list -->
     <aside class="chat-sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
         <span v-if="!sidebarCollapsed" class="sidebar-title">会话列表</span>
+        <button class="btn-icon" @click="showSettings = true" title="模型设置（BYOK，自带 Key）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
         <button class="btn-icon" @click="sidebarCollapsed = !sidebarCollapsed" :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
             <template v-if="sidebarCollapsed">
@@ -57,6 +68,9 @@
           </div>
           <h2 class="welcome-title">AI 实验研究助手</h2>
           <p class="welcome-desc">基于你的实验记录进行智能问答、数据分析和报告生成</p>
+          <p v-if="!llmActive && !serverLlmReady" class="welcome-note">
+            当前未配置模型 Key，处于<b>降级 / 演示模式</b>（仅规则抽取，无 AI 对话）。点击左上角 ⚙ 填入你自己的 API Key 即可完整体验 Agent。
+          </p>
           <div class="suggestions">
             <button v-for="q in suggestions" :key="q" class="suggestion-btn" @click="send(q)">{{ q }}</button>
           </div>
@@ -137,7 +151,21 @@
           </button>
         </div>
         <div class="input-hint">Enter 发送 · Shift+Enter 换行</div>
+        <div class="llm-status" :class="{ active: llmActive }">
+          <span class="status-dot"></span>
+          <span v-if="llmActive">已绑定你的 API Key · 完整体验</span>
+          <span v-else-if="serverLlmReady">演示模式（使用服务端 Key）</span>
+          <span v-else>未配置 Key · 降级模式（点 ⚙ 绑定你的 Key）</span>
+        </div>
+        <div class="llm-status embed" :class="{ active: embedActive }">
+          <span class="status-dot"></span>
+          <span v-if="embedActive">语义检索：已绑定你的 Embedding Key</span>
+          <span v-else>语义检索：未配置 · 自动降级关键词搜索</span>
+        </div>
       </div>
+    </div>
+
+    <LlmSettings v-if="showSettings" @close="showSettings = false" @saved="refreshLlm" />
     </div>
   </div>
 </template>
@@ -146,7 +174,9 @@
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
 import { api } from '../api/client.js'
+import { getLlmConfig, getEmbeddingConfig, demoReadOnly, initDemoMode } from '../api/client.js'
 import AgentTrace from '../components/AgentTrace.vue'
+import LlmSettings from '../components/LlmSettings.vue'
 
 // --- State ---
 const messages = ref([])          // {role, content, trace?, iterations?}
@@ -160,6 +190,17 @@ const sidebarCollapsed = ref(false)
 const chatMsgs = ref(null)
 const textareaRef = ref(null)
 let abortController = null  // AbortController for SSE stream cancellation
+
+// --- BYOK 状态 ---
+const showSettings = ref(false)
+const llmActive = ref(false)
+const serverLlmReady = ref(false)
+const embedActive = ref(false)
+
+function refreshLlm() {
+  llmActive.value = !!getLlmConfig()
+  embedActive.value = !!getEmbeddingConfig()
+}
 
 const suggestions = [
   '有哪些实验报过错？',
@@ -366,6 +407,10 @@ function formatTime(ts) {
 
 // --- Lifecycle ---
 onMounted(() => {
+  refreshLlm()
+  initDemoMode()
+  // 探测服务端是否配置了模型 Key（决定欢迎页提示文案）
+  api.health().then(r => { serverLlmReady.value = !!r?.llm_configured }).catch(() => {})
   loadSessions()
 })
 
@@ -376,9 +421,15 @@ onUnmounted(() => {
 
 <style scoped>
 .chat-view {
-  display: flex; height: 100%; overflow: hidden;
+  display: flex; flex-direction: column; height: 100%; overflow: hidden;
   background: var(--bg-primary);
 }
+
+.chat-body {
+  display: flex; flex: 1; min-height: 0;
+}
+
+.demo-banner { padding: 8px 20px; font-size: 12px; color: #6a4a00; background: rgba(245,200,80,.16); border-bottom: 0.5px solid rgba(220,170,40,.3); }
 
 /* ==================== Sidebar ==================== */
 .chat-sidebar {
@@ -460,6 +511,12 @@ onUnmounted(() => {
   color: var(--text-primary); margin: 0;
 }
 .welcome-desc { font-size: 13px; color: var(--text-tertiary); margin: 0 0 12px; }
+.welcome-note {
+  font-size: 12px; line-height: 1.6; color: var(--text-secondary);
+  background: var(--bg-tertiary); border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm); padding: 8px 12px; max-width: 520px; margin: 0 0 12px;
+}
+.welcome-note b { color: var(--text-primary); }
 
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 600px; }
 .suggestion-btn {
@@ -575,4 +632,20 @@ onUnmounted(() => {
   max-width: 820px; margin: 4px auto 0; font-size: 11px; color: var(--text-tertiary);
   text-align: right;
 }
+
+/* BYOK status chip */
+.llm-status {
+  max-width: 820px; margin: 6px auto 0; font-size: 11px;
+  display: flex; align-items: center; gap: 6px; justify-content: flex-start;
+  color: var(--text-tertiary);
+}
+.llm-status.active { color: #2a9d57; }
+.llm-status.embed { margin-top: 2px; font-size: 10px; color: var(--text-tertiary); }
+.llm-status.embed.active { color: #4a7cff; }
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.llm-status.active .status-dot { background: #2a9d57; }
+.llm-status.embed.active .status-dot { background: #4a7cff; }
 </style>

@@ -8,7 +8,33 @@
           {{ selectedRecord.task || selectedRecord.id }}
         </span>
       </div>
+      <div class="top-bar-right">
+        <button class="btn-icon-top" @click="showTimeline = true" title="实验时间线">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 15 14"/>
+          </svg>
+        </button>
+        <button class="btn-icon-top" @click="showFaq = true" title="报错知识库">💡</button>
+        <button class="btn-icon-top" @click="showEval = true" title="评测集回归">🧪</button>
+        <span v-if="demoReadOnly" class="demo-badge" title="公网演示模式：仅可对话与检索，不可上传/删除">
+          🔒 演示模式
+        </span>
+        <button class="btn-icon-top" @click="showSettings = true" title="模型设置（BYOK，自带 Key）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
     </div>
+
+    <!-- 演示模式横幅 -->
+    <div v-if="demoReadOnly" class="demo-banner">
+      🔒 公网演示模式：仅可对话与检索内置实验记录，暂不开放上传/新建/删除。体验完整功能请在本地运行项目。
+    </div>
+
+    <!-- BYOK 模型设置弹窗 -->
+    <LlmSettings v-if="showSettings" @close="showSettings = false" />
 
     <!-- 新建实验弹窗 -->
     <div v-if="showNewExpDialog" class="modal-overlay" @click.self="showNewExpDialog = false">
@@ -49,26 +75,41 @@
       </div>
     </div>
 
-    <!-- 上传记录弹窗 -->
-    <div v-if="showUploadDialog" class="modal-overlay" @click.self="closeUploadDialog">
+    <!-- 上传记录弹窗（演示模式隐藏） -->
+    <div v-if="showUploadDialog && !demoReadOnly" class="modal-overlay" @click.self="closeUploadDialog">
       <div class="modal-box modal-upload">
         <h3>添加记录到「{{ uploadTargetExp?.name }}」</h3>
         <div class="upload-drop" :class="{ drag: isDragging }" @dragover.prevent="isDragging = true" @dragleave="isDragging = false" @drop.prevent="onDrop">
           <label class="upload-label">
-            <input type="file" accept=".txt,.md,.json" @change="onFileChange" hidden />
-            <span>选择文件或拖拽到此处</span>
+            <input type="file" accept=".txt,.md,.json" multiple @change="onFileChange" hidden />
+            <span>选择文件或拖拽到此处（可多选批量分析）</span>
           </label>
-          <span class="upload-hint">支持 .txt / .md / .json</span>
-          <div v-if="uploadFile" class="file-chip">
-            <span>{{ uploadFile.name }}</span>
-            <button @click="uploadFile = null">✕</button>
+          <span class="upload-hint">支持 .txt / .md / .json，单次最多 50 个</span>
+          <div v-if="uploadFiles.length" class="file-list">
+            <div v-for="(f, i) in uploadFiles" :key="i" class="file-chip">
+              <span class="file-name">{{ f.name }}</span>
+              <button class="file-remove" @click="removeUploadFile(i)" :disabled="analyzing" title="移除">✕</button>
+            </div>
           </div>
         </div>
-        <textarea v-model="uploadText" class="upload-textarea" placeholder="或粘贴实验日志、聊天记录..." rows="4"></textarea>
+        <textarea v-model="uploadText" class="upload-textarea" placeholder="或粘贴实验日志、聊天记录..." rows="4" :disabled="uploadFiles.length > 0" @input="onTextInput"></textarea>
         <div v-if="analyzeError" class="analyze-error">{{ analyzeError }}</div>
+        <div v-if="relatedFaq.length" class="faq-hints">
+          <div class="faq-hints-title">📚 相关历史排查建议</div>
+          <div v-for="(f, i) in relatedFaq" :key="i" class="faq-hint-item">
+            <span class="faq-hint-err">⚠️ {{ f.error_text }}</span>
+            <span class="faq-hint-sol">✅ {{ f.solution_text }}</span>
+          </div>
+        </div>
+        <div v-if="uploadFiles.length > 1" class="batch-progress">
+          <div class="batch-progress-track"><div class="batch-progress-fill" :style="{ width: analyzeProgress + '%' }"></div></div>
+          <span class="batch-progress-text">{{ batchDone }}/{{ uploadFiles.length }} 已处理</span>
+        </div>
         <div class="modal-actions">
-          <button class="btn-primary" :disabled="analyzing || (!uploadFile && !uploadText.trim())" @click="startAnalysis">
-            {{ analyzing ? `分析中... ${analyzeProgress}%` : '开始分析' }}
+          <button class="btn-primary" :disabled="analyzing || (uploadFiles.length === 0 && !uploadText.trim())" @click="startAnalysis">
+            <span v-if="analyzing">分析中... {{ analyzeProgress }}%</span>
+            <span v-else-if="uploadFiles.length > 1">批量分析（{{ uploadFiles.length }}）</span>
+            <span v-else>开始分析</span>
           </button>
           <button class="btn-secondary" @click="closeUploadDialog" :disabled="analyzing">关闭</button>
         </div>
@@ -92,7 +133,7 @@
         <!-- 实验列表 -->
         <div class="panel-header">
           <h2>实验列表</h2>
-          <button class="btn-new-exp-sm" @click="showNewExpDialog = true">+ 新建</button>
+          <button v-if="!demoReadOnly" class="btn-new-exp-sm" @click="showNewExpDialog = true">+ 新建</button>
         </div>
         <div class="exp-scroll">
           <template v-for="group in experimentsByMonth" :key="group.key">
@@ -114,7 +155,7 @@
               <div class="exp-card-bottom">
                 <span class="exp-card-date">{{ formatDate(exp.created_at) }}</span>
                 <span class="exp-card-count">{{ exp.recordCount || 0 }} 条记录</span>
-                <button class="exp-del-btn" @click.stop="deleteExperiment(exp)" title="删除实验">✕</button>
+                <button v-if="!demoReadOnly" class="exp-del-btn" @click.stop="deleteExperiment(exp)" title="删除实验">✕</button>
               </div>
               <!-- 展开时显示记录 -->
               <div v-if="expandedExps.has(exp.id)" class="exp-records">
@@ -130,18 +171,18 @@
                     <span v-if="r.dataset" class="chip">{{ truncate(r.dataset, 14) }}</span>
                     <span v-if="r.model" class="chip">{{ r.model }}</span>
                     <span class="chip-date">{{ formatDate(r.created_at) }}</span>
-                    <button class="record-del-btn" @click.stop="pendingDeleteRecord = r" title="删除记录">✕</button>
+                    <button v-if="!demoReadOnly" class="record-del-btn" @click.stop="pendingDeleteRecord = r" title="删除记录">✕</button>
                   </div>
                 </div>
                 <div v-if="getRecordsForExp(exp.id).length === 0" class="exp-no-records">
-                  暂无记录，点击下方按钮上传日志开始分析
+                  暂无记录{{ demoReadOnly ? '' : '，点击下方按钮上传日志开始分析' }}
                 </div>
-                <button class="add-record-btn" @click.stop="openUploadDialog(exp)">+ 添加记录</button>
+                <button v-if="!demoReadOnly" class="add-record-btn" @click.stop="openUploadDialog(exp)">+ 添加记录</button>
               </div>
             </div>
           </template>
           <div v-if="experiments.length === 0" class="empty-hint">
-            暂无实验，点击「+ 新建」创建
+            {{ demoReadOnly ? '演示模式仅展示内置实验记录' : '暂无实验，点击「+ 新建」创建' }}
           </div>
         </div>
       </aside>
@@ -414,6 +455,20 @@
       </aside>
     </div>
 
+    <!-- 实验时间线全屏视图 -->
+    <ExperimentTimeline
+      v-if="showTimeline"
+      :selected-id="selectedRecord?.id || ''"
+      @close="showTimeline = false"
+      @select="onTimelineSelect"
+    />
+
+    <!-- 报错知识库（FAQ 沉淀飞轮） -->
+    <FaqPanel :show="showFaq" @close="showFaq = false" />
+
+    <!-- 评测集自动化回归 -->
+    <EvalPanel :show="showEval" @close="showEval = false" />
+
     <!-- 全屏图谱弹窗 -->
     <div v-if="graphFullscreen" class="graph-fullscreen-overlay" @click="graphFullscreen = false">
       <div class="graph-fullscreen-box" @click.stop>
@@ -575,8 +630,12 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { marked } from 'marked'
-import { api } from '../api/client'
+import { api, demoReadOnly, initDemoMode } from '../api/client'
 import KnowledgeGraph from '../components/KnowledgeGraph.vue'
+import LlmSettings from '../components/LlmSettings.vue'
+import ExperimentTimeline from '../components/ExperimentTimeline.vue'
+import FaqPanel from '../components/FaqPanel.vue'
+import EvalPanel from '../components/EvalPanel.vue'
 
 // ========== marked 配置 ==========
 marked.setOptions({ breaks: true, gfm: true })
@@ -597,12 +656,17 @@ const graphData = ref(null)
 const messagesArea = ref(null)
 
 // 上传
-const uploadFile = ref(null)
+const uploadFiles = ref([])         // 已选文件列表（支持批量）
+const batchDone = ref(0)            // 批量分析中已处理文件数
+
+// 模型设置弹窗（BYOK）
+const showSettings = ref(false)
 const uploadText = ref('')
 const isDragging = ref(false)
 const analyzing = ref(false)
 const analyzeProgress = ref(0)
 const analyzeError = ref('')
+const relatedFaq = ref([])         // 分析失败时展示的相关历史排查建议
 const showUploadDialog = ref(false)
 const uploadTargetExp = ref(null)  // 弹窗对应的目标实验
 
@@ -618,6 +682,9 @@ const recordDetailLoading = ref(false)
 const reportContent = ref('')
 const reportGenerating = ref(false)
 const showDetailFullscreen = ref(false)
+const showTimeline = ref(false)        // 实验时间线全屏视图
+const showFaq = ref(false)             // 报错知识库面板
+const showEval = ref(false)            // 评测集自动化回归面板
 
 // 关闭弹窗时重置搜索状态
 watch(showDetailFullscreen, (val) => {
@@ -1106,6 +1173,7 @@ function selectCurrentExperiment(exp) {
 }
 
 function deleteExperiment(exp) {
+  if (demoReadOnly.value) return  // 演示模式禁用删除
   pendingDeleteExp.value = exp
 }
 
@@ -1126,6 +1194,7 @@ async function confirmDeleteExperiment() {
 }
 
 async function confirmDeleteRecord() {
+  if (demoReadOnly.value) return  // 演示模式禁用删除
   const rec = pendingDeleteRecord.value
   if (!rec) return
   pendingDeleteRecord.value = null
@@ -1180,6 +1249,11 @@ async function selectRecord(r) {
   }
 }
 
+function onTimelineSelect(r) {
+  showTimeline.value = false
+  selectRecord(r)
+}
+
 function clearSelection() {
   selectedRecord.value = null
   recordDetail.value = null
@@ -1189,109 +1263,144 @@ function clearSelection() {
 // ========== 上传弹窗控制 ==========
 
 function openUploadDialog(exp) {
+  if (demoReadOnly.value) return  // 演示模式禁用上传
   uploadTargetExp.value = exp
-  uploadFile.value = null
+  uploadFiles.value = []
   uploadText.value = ''
   analyzeError.value = ''
+  relatedFaq.value = []
+  batchDone.value = 0
   showUploadDialog.value = true
 }
 
 function closeUploadDialog() {
   if (analyzing.value) return
   showUploadDialog.value = false
-  uploadFile.value = null
+  uploadFiles.value = []
   uploadText.value = ''
   analyzeError.value = ''
 }
 
 // ========== 上传分析 ==========
 
+function appendFiles(fileList) {
+  const incoming = Array.from(fileList || [])
+  if (!incoming.length) return
+  uploadFiles.value = [...uploadFiles.value, ...incoming].slice(0, 50)
+  if (uploadFiles.value.length) uploadText.value = ''  // 文件与文本互斥
+}
+
 function onFileChange(e) {
-  uploadFile.value = e.target.files[0] || null
-  if (uploadFile.value) uploadText.value = ''
+  appendFiles(e.target.files)
+  e.target.value = ''  // 允许重复选择同一文件
 }
 
 function onDrop(e) {
   isDragging.value = false
-  const f = e.dataTransfer.files[0]
-  if (f) { uploadFile.value = f; uploadText.value = '' }
+  appendFiles(e.dataTransfer.files)
+}
+
+function removeUploadFile(i) {
+  if (analyzing.value) return
+  uploadFiles.value = uploadFiles.value.filter((_, idx) => idx !== i)
+}
+
+function onTextInput() {
+  if (uploadText.value.trim()) uploadFiles.value = []  // 文本与文件互斥
+}
+
+/** 把单条分析结果落入选中记录并关联到目标实验 */
+async function applyAnalysisResult(result) {
+  const rec = result?.record
+  if (!rec?.id) return
+  selectedRecord.value = {
+    id: rec.id,
+    task: rec.task || '',
+    dataset: rec.dataset || '',
+    model: rec.model || '',
+    created_at: rec.created_at || '',
+  }
+  recordDetail.value = rec
+  reportContent.value = result.report || ''
+  if (result.graph?.entities?.length) {
+    graphData.value = result.graph
+  }
+  const match = findMatchingGraph(rec.id)
+  if (match) selectedGraphFile.value = match.filename
+  if (uploadTargetExp.value) {
+    await addRecordToExperiment(rec.id, uploadTargetExp.value.id)
+  }
 }
 
 async function startAnalysis() {
-  if (!uploadFile.value && !uploadText.value.trim()) {
+  if (demoReadOnly.value) {
+    analyzeError.value = '演示模式不支持上传分析'
+    return
+  }
+  if (uploadFiles.value.length === 0 && !uploadText.value.trim()) {
     analyzeError.value = '请上传文件或粘贴文本'
     return
   }
   analyzing.value = true
   analyzeError.value = ''
   analyzeProgress.value = 10
-  // 标记目标实验为"进行中"
+  batchDone.value = 0
   if (uploadTargetExp.value) {
     analyzingExpId.value = uploadTargetExp.value.id
   }
 
   try {
-    let result
-    if (uploadFile.value) {
-      analyzeProgress.value = 30
-      result = await api.analyzeFile(uploadFile.value)
+    // 批量文件分析
+    if (uploadFiles.value.length > 0) {
+      const fileCount = uploadFiles.value.length
+      analyzeProgress.value = Math.round(20 / fileCount)
+      const batch = await api.analyzeFiles(uploadFiles.value)
+      const okResults = (batch?.results || []).filter(r => r?.record?.id)
+      // 逐个关联实验并选中第一个
+      for (let i = 0; i < okResults.length; i++) {
+        await applyAnalysisResult(okResults[i])
+        batchDone.value = i + 1
+        analyzeProgress.value = Math.round(((i + 1) / Math.max(fileCount, 1)) * 100)
+      }
+      if (batch?.errors?.length) {
+        analyzeError.value = `${batch.errors.length} 个文件分析失败，已处理 ${batch.success}/${batch.total}`
+      }
     } else {
+      // 纯文本分析（保持原行为）
       analyzeProgress.value = 30
-      result = await api.analyzeText(uploadText.value)
+      const result = await api.analyzeText(uploadText.value)
+      analyzeProgress.value = 90
+      await applyAnalysisResult(result)
     }
-    analyzeProgress.value = 90
 
-    // 刷新列表
     await Promise.all([fetchRecords(), fetchGraphList()])
     analyzeProgress.value = 100
 
-    // 自动选中新记录（直接使用 analyze 返回的数据，避免额外 API 调用）
-    if (result?.record?.id) {
-      const rec = result.record
-      selectedRecord.value = {
-        id: rec.id,
-        task: rec.task || '',
-        dataset: rec.dataset || '',
-        model: rec.model || '',
-        created_at: rec.created_at || '',
-      }
-      recordDetail.value = rec
-      reportContent.value = result.report || ''
-
-      // 直接使用 analyze 返回的图谱数据（避免额外 API 调用）
-      if (result.graph?.entities?.length) {
-        graphData.value = result.graph
-      }
-
-      // 同时尝试从列表匹配图谱文件（用于下拉选择器）
-      const match = findMatchingGraph(rec.id)
-      if (match) {
-        selectedGraphFile.value = match.filename
-      }
-
-      // 将记录关联到目标实验
-      if (uploadTargetExp.value) {
-        await addRecordToExperiment(rec.id, uploadTargetExp.value.id)
-      }
-    }
-
-    // 清空输入并关闭弹窗
-    uploadFile.value = null
+    uploadFiles.value = []
     uploadText.value = ''
     showUploadDialog.value = false
   } catch (e) {
     analyzeError.value = e.message || '分析失败，请重试'
     console.error('[startAnalysis]', e)
+    // 分析失败时，检索知识库给出相关历史排查建议（飞轮对外可见）
+    try {
+      const q = (uploadText.value || (e.message || '')).slice(0, 200)
+      const r = await api.searchFaq(q, 3)
+      relatedFaq.value = r.results || []
+    } catch {
+      relatedFaq.value = []
+    }
   } finally {
     analyzing.value = false
     analyzingExpId.value = null
-    setTimeout(() => { analyzeProgress.value = 0 }, 600)
+    setTimeout(() => { analyzeProgress.value = 0; batchDone.value = 0 }, 600)
   }
 }
 
 // ========== 新建实验 ==========
 
 async function createExperiment() {
+  if (demoReadOnly.value) return  // 演示模式禁用新建
   if (!newExpName.value.trim()) return
   try {
     const res = await api.createExperiment(newExpName.value.trim(), newExpDesc.value.trim(), new Date().toISOString())
@@ -1546,6 +1655,7 @@ function toggleGraphFull() {
 // ========== 生命周期 ==========
 
 onMounted(() => {
+  initDemoMode()
   fetchRecords()
   fetchGraphList()
   fetchExperiments()
@@ -1595,7 +1705,12 @@ watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
 .top-bar-left { display: flex; align-items: center; gap: 12px; }
 .app-title { font-size: 18px; font-weight: 600; margin: 0; }
 .status-badge { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, #F3A04C 12%, transparent); color: #E58522; border: 0.5px solid color-mix(in srgb, #F3A04C 25%, transparent); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.top-bar-right { display: flex; gap: 8px; }
+.top-bar-right { display: flex; gap: 8px; align-items: center; }
+.btn-icon-top { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0.5px solid var(--border-secondary, rgba(0,0,0,.08)); border-radius: 8px; background: var(--bg-primary, #F4F4F6); color: var(--text-secondary, rgba(0,0,0,.5)); cursor: pointer; transition: border-color .15s, color .15s; }
+.btn-icon-top:hover { border-color: #E58522; color: #E58522; }
+.demo-badge { font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 999px; background: rgba(64,120,220,.12); color: #2f6bd6; border: 0.5px solid rgba(64,120,220,.3); cursor: default; }
+.demo-banner { padding: 8px 20px; font-size: 12px; color: #6a4a00; background: rgba(245,200,80,.16); border-bottom: 0.5px solid rgba(220,170,40,.3); }
+.demo-banner::first-letter { margin-right: 2px; }
 .btn-primary { padding: 7px 16px; border: none; border-radius: 10px; background: #F3A04C; color: #fff; font-size: 13px; font-weight: 500; cursor: pointer; }
 .btn-primary:hover { background: #E58522; }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
@@ -1630,6 +1745,28 @@ watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
 .btn-analyze:hover:not(:disabled) { background: #E58522; }
 .btn-analyze:disabled { opacity: .45; cursor: not-allowed; }
 .analyze-error { font-size: 12px; color: #E65C53; padding: 4px 0; margin-bottom: 8px; }
+.faq-hints {
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 8px 10px; margin-bottom: 8px;
+}
+.faq-hints-title { font-size: 12px; color: #334155; font-weight: 600; margin-bottom: 4px; }
+.faq-hint-item { display: block; font-size: 12px; line-height: 1.5; margin: 3px 0; }
+.faq-hint-err { display: block; color: #b91c1c; }
+.faq-hint-sol { display: block; color: #15803d; }
+
+/* 批量文件列表 */
+.file-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 168px; overflow-y: auto; text-align: left; }
+.file-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 0; padding: 6px 10px; background: color-mix(in srgb, #F3A04C 10%, transparent); border: 0.5px solid color-mix(in srgb, #F3A04C 22%, transparent); border-radius: 6px; font-size: 12px; color: #E58522; }
+.file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-remove { flex-shrink: 0; border: none; background: none; cursor: pointer; font-size: 11px; color: var(--text-tertiary, rgba(0,0,0,.4)); padding: 0 2px; }
+.file-remove:hover:not(:disabled) { color: #E65C53; }
+.file-remove:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 批量进度 */
+.batch-progress { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.batch-progress-track { flex: 1; height: 4px; background: var(--border-secondary, rgba(0,0,0,.08)); border-radius: 2px; overflow: hidden; }
+.batch-progress-fill { height: 100%; background: #F3A04C; transition: width 0.3s ease; }
+.batch-progress-text { font-size: 11px; color: var(--text-tertiary, rgba(0,0,0,.4)); white-space: nowrap; }
 
 /* 当前实验指示器 */
 .current-exp-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: color-mix(in srgb, #F3A04C 8%, transparent); border-bottom: 0.5px solid color-mix(in srgb, #F3A04C 20%, transparent); flex-shrink: 0; }

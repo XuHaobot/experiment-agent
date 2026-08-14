@@ -43,10 +43,29 @@ CHROMA_DIR = PROJECT_ROOT / "data" / "chroma"
 # ---------------------------------------------------------------------------
 
 class DashScopeEmbedding:
-    """DashScope text-embedding-v2 客户端。"""
+    """Embedding 客户端（支持 BYOK）。
 
-    def __init__(self, api_key: str = ""):
+    默认使用阿里云 DashScope text-embedding 格式；当 api_format="openai" 时，
+    改用 OpenAI 兼容的 /embeddings 接口，以便支持访客自带 embedding key
+    （如 OpenAI text-embedding-3 或任意兼容服务）。
+    """
+
+    def __init__(
+        self,
+        api_key: str = "",
+        base_url: str = "",
+        model: str = "",
+        api_format: str = "dashscope",
+    ):
         self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY", "")
+        self.api_format = (api_format or "dashscope").lower()
+        if self.api_format == "openai":
+            self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+            self.model = model or "text-embedding-3-small"
+        else:
+            self.api_format = "dashscope"
+            self.base_url = base_url or DASHSCOPE_EMBEDDING_URL
+            self.model = model or EMBEDDING_MODEL
 
     @property
     def is_configured(self) -> bool:
@@ -58,17 +77,14 @@ class DashScopeEmbedding:
         DashScope 单次最多 25 条文本，超出时自动分批。
         """
         if not self.is_configured:
-            raise RuntimeError(
-                "DASHSCOPE_API_KEY 未配置。请在 .env 中设置。"
-            )
+            raise RuntimeError("Embedding API Key 未配置。请在设置中填写 Embedding Key。")
 
         all_embeddings: list[list[float]] = []
         batch_size = 25
 
         for start in range(0, len(texts), batch_size):
             batch = texts[start : start + batch_size]
-            embeddings = self._request(batch)
-            all_embeddings.extend(embeddings)
+            all_embeddings.extend(self._request(batch))
 
         return all_embeddings
 
@@ -81,24 +97,51 @@ class DashScopeEmbedding:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": EMBEDDING_MODEL,
-            "input": {"texts": texts},
-        }
-        resp = requests.post(DASHSCOPE_EMBEDDING_URL, headers=headers, json=payload, timeout=30)
+        if self.api_format == "openai":
+            url = f"{self.base_url}/embeddings"
+            payload = {"model": self.model, "input": texts}
+        else:
+            url = self.base_url
+            payload = {"model": self.model, "input": {"texts": texts}}
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
 
         if resp.status_code >= 400:
-            raise RuntimeError(f"DashScope Embedding API 错误: HTTP {resp.status_code}: {resp.text[:500]}")
+            raise RuntimeError(f"Embedding API 错误: HTTP {resp.status_code}: {resp.text[:500]}")
 
         data = resp.json()
         try:
+            if self.api_format == "openai":
+                # OpenAI 返回顺序与输入一致
+                return [item["embedding"] for item in data["data"]]
             items = data["output"]["embeddings"]
         except (KeyError, TypeError):
-            raise RuntimeError(f"DashScope 响应格式异常: {json.dumps(data, ensure_ascii=False)[:300]}")
+            raise RuntimeError(f"Embedding 响应格式异常: {json.dumps(data, ensure_ascii=False)[:300]}")
 
         # 按 text_index 排序确保顺序正确
         items_sorted = sorted(items, key=lambda x: x.get("text_index", 0))
         return [item["embedding"] for item in items_sorted]
+
+
+def build_embedding_client(embedding_config: dict | None = None) -> DashScopeEmbedding:
+    """构造 Embedding 客户端：BYOK 优先，缺项回退服务端 env。
+
+    embedding_config 字段约定：
+        embedding_api_key / embedding_base_url / embedding_model / embedding_api_format
+    """
+    cfg = embedding_config or {}
+    api_key = cfg.get("embedding_api_key") or cfg.get("api_key") or ""
+    base_url = cfg.get("embedding_base_url") or cfg.get("base_url") or ""
+    model = cfg.get("embedding_model") or cfg.get("model") or ""
+    api_format = cfg.get("embedding_api_format") or cfg.get("api_format") or "dashscope"
+    if not api_key:
+        # 回退服务端环境变量
+        api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    return DashScopeEmbedding(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        api_format=api_format,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -230,9 +273,11 @@ class VectorStore:
         self,
         persist_dir: str | Path | None = None,
         embedding: DashScopeEmbedding | None = None,
+        collection_name: str = "experiment_records",
     ):
         self._persist_dir = str(persist_dir or CHROMA_DIR)
         self._embedding = embedding or DashScopeEmbedding()
+        self._collection_name = collection_name
         self._client = None
         self._collection = None
 
@@ -240,6 +285,18 @@ class VectorStore:
     def is_ready(self) -> bool:
         """ChromaDB 可用且 Embedding 已配置。"""
         return self._embedding.is_configured
+
+    def count(self) -> int:
+        """返回当前 collection 中已索引的 chunk 数量。"""
+        self._ensure_client()
+        return self._collection.count()
+
+    def index_if_empty(self, records_dir: str | Path) -> dict:
+        """若向量库为空，则使用当前 embedding 客户端对 records 建库（BYOK 场景）。"""
+        self._ensure_client()
+        if self._collection.count() == 0:
+            return self.rebuild_index(records_dir)
+        return {"indexed": 0, "errors": 0, "skipped": True}
 
     def _ensure_client(self):
         """延迟初始化 ChromaDB 客户端。"""
@@ -253,7 +310,7 @@ class VectorStore:
 
         self._client = chromadb.PersistentClient(path=self._persist_dir)
         self._collection = self._client.get_or_create_collection(
-            name="experiment_records",
+            name=self._collection_name,
             metadata={"hnsw:space": "cosine"},
         )
 

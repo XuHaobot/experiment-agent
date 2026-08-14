@@ -32,6 +32,8 @@ def _guess_error_type(line: str) -> str:
     lowered = line.lower()
     if "cuda out of memory" in lowered:
         return "cuda_oom"
+    if "outofmemoryerror" in lowered or "oom" in lowered or "heap space" in lowered:
+        return "oom"
     if "filenotfounderror" in lowered or "no such file" in lowered:
         return "file_not_found"
     if "modulenotfounderror" in lowered or "importerror" in lowered:

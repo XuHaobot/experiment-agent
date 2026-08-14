@@ -53,7 +53,6 @@ Agent 自动调用 `search_records` + `analyze_data`，输出结构化归因：
 | HDFS 写入失败 | `could only be replicated to 0 nodes` | DataNode 未启动 / 副本数 > 节点数 | 重新格式化 HDFS 或调整 `dfs.replication` |
 
 > ⬆️ 真实运行结果（基于 Hadoop 3.3.5 + HBase 2.4.17 实验）
-<img width="1608" height="930" alt="c128128cb305b3e3886ec70c1cb03bdc" src="https://github.com/user-attachments/assets/b467509f-aa4a-4273-80b1-00ce7860afdc" />
 
 ### 2. 复盘报告：自动生成 Markdown 实验复盘文档
 
@@ -88,9 +87,10 @@ Agent 自动调用 `search_records` + `analyze_data`，输出结构化归因：
 ```
 
 > ⬆️ 报告按时间顺序组织，结构清晰，可直接贴入实验周报
-    <img width="1616" height="941" alt="49d841dc05557a3f59b02ce2cfaa11c1" src="https://github.com/user-attachments/assets/63a249de-2c90-400a-bf35-cad1e9f93487" />
+
 ### 3. 知识图谱：可视化"实验-命令-参数-报错-方案"全链路
 
+![知识图谱可视化](screenshots/graph_visualization.png)
 
 图谱自动从结构化记录中抽取：
 
@@ -100,7 +100,6 @@ Agent 自动调用 `search_records` + `analyze_data`，输出结构化归因：
 点击任意节点查看实体详情，支持关键词搜索、图例筛选、关系定位。
 
 > ⬆️ 真实运行结果（基于 graph-20260614-151321-247151.json）
-<img width="1606" height="929" alt="152adaab4cce0d05f8f64d3f3eb22416" src="https://github.com/user-attachments/assets/e323ff10-cce5-4e0c-8ab6-cc2f00d7073a" />
 
 ---
 
@@ -359,11 +358,11 @@ DASHSCOPE_API_KEY=your-dashscope-key
 - [x] SSE 流式输出
 - [x] 知识图谱（9 实体 + 11 关系）
 - [x] LLM-as-Judge 内部评测
+- [x] 多文件批量分析（一次上传最多 50 个实验记录，批量执行分析流水线）
+- [x] 实验时间线视图（按时间聚合全部实验记录，点击节点联动详情）
 - [ ] Neo4j 替换 JSON 图谱存储
-- [ ] 多文件批量分析
-- [ ] 实验时间线视图
-- [ ] 报错知识库（FAQ 沉淀）
-- [ ] 评测集自动化回归
+- [x] 报错知识库（FAQ 沉淀）：`/api/faq`、`/api/faq/search`；成功分析自动沉淀「报错→解决方案」，上传失败展示相关历史排查建议，问答上下文增强
+- [x] 评测集自动化回归：`src/eval_runner.py` + `data/eval_dataset.json` + `/api/evaluate/run`，LLM-as-Judge + 字段覆盖率，支持 `python -m src.eval_runner` 离线/CI 运行
 
 ---
 
@@ -375,6 +374,58 @@ DASHSCOPE_API_KEY=your-dashscope-key
 
 ---
 
-## 十五、License
+## 十五、BYOK：自带 API Key（公网展示推荐）
+
+部署到公网给陌生人/面试官体验时，不应烧你自己的 LLM 额度。本项目支持 **BYOK（Bring Your Own Key）**：
+
+- 访客在前端点「⚙ 模型设置」填入自己的 `API Key / Base URL / Model`，信息**仅存于其浏览器 localStorage**。
+- 每次对话请求会把 `llm_config` 随请求体发给后端；后端用 `build_llm_client(llm_config)` 构建客户端，**用户的 Key 只在本次请求内使用，不落盘、不打日志、不回显**。
+- 缺省的 Key 字段会回退到服务端 `.env`，因此也兼容旧有的统一服务端配置。
+- 未配置任何 Key 时，走既有「规则抽取降级」模式（界面会提示当前为降级/演示模式）。
+
+**安全要点**：服务器永远不保管陌生人的密钥，避免密钥泄露与合规风险；你只需承担静态托管费，token 费由使用者自付，demo 可服务无限用户而边际成本为 0。
+
+请求示例（带 BYOK）：
+
+```json
+POST /api/chat/stream
+{
+  "question": "有哪些实验报过错？",
+  "llm_config": {
+    "api_key": "sk-...",
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat"
+  },
+  "embedding_config": {
+    "embedding_api_key": "sk-dashscope-...",
+    "embedding_api_format": "dashscope",
+    "embedding_model": "text-embedding-v2"
+  }
+}
+```
+
+### 语义检索的 BYOK（可选）
+
+语义检索（向量化）依赖独立的 Embedding 服务，**不共用对话 Key**：
+
+- 访客在「⚙ 模型设置 → 语义检索 Embedding」填入自己的 Embedding Key 后，即可启用语义搜索；不填则自动降级为**关键词搜索**，对话照常可用。
+- 支持两种格式（`embedding_api_format`）：
+  - `dashscope`：阿里云百炼 text-embedding-v2 / v3（默认），只填 Key 即可。
+  - `openai`：任意 OpenAI 兼容 `/embeddings` 接口（如 OpenAI `text-embedding-3-small`），可自定义 `base_url` / `model`。
+- **隔离与建库**：访客自带 key 时，向量库按 Embedding 模型名隔离 collection，首次调用自动对 `data/records` 建库；不同访客互不污染。服务器侧 `DASHSCOPE_API_KEY` 仅在未提供 BYOK 时使用。
+- ⚠️ **DeepSeek 不提供 Embedding API**，若访客只填了 DeepSeek 对话 Key，语义检索会安全降级为关键词搜索，不会报错。
+- 同理，访客的 Embedding Key 也只在本次请求内使用，不落盘、不打日志、不回显。
+
+## 十五之一、公网只读模式（DEMO_READONLY）
+
+公网展示时建议开启**只读模式**，避免陌生人上传污染记录库、以及多访客会话串台/互相挤压：
+
+- 开启方式：环境变量 `DEMO_READONLY=true`（`.env` 或云平台环境变量）。
+- 效果：禁用上传/新建实验/删除记录/重建索引等**所有写接口**（返回 403）；访客只能**对话 + 检索内置种子记录**。
+- 多用户隔离：每个浏览器生成匿名 `tenant_id`（仅 UUID），会话列表/历史/删除按租户隔离，淘汰仅限同租户——**互不串台、互不挤压**。
+- 前端在只读模式下自动隐藏上传/新建/删除按钮，并显示「🔒 演示模式」角标与横幅；⚙ BYOK 设置仍可用。
+- 详见 `DEPLOY.md` 第 0.1 节。
+
+## 十六、License
 
 MIT

@@ -168,17 +168,33 @@ def _normalize_for_match(value: str) -> str:
 # 语义搜索 (Vector Search)
 # ---------------------------------------------------------------------------
 
-def semantic_search(query: str, top_k: int = 5) -> list[dict]:
+def semantic_search(query: str, top_k: int = 5, embedding_config: dict | None = None) -> list[dict]:
     """通过向量语义相似度搜索实验记录。
 
-    需要先 pip install chromadb，并配置 DASHSCOPE_API_KEY。
-    如果向量库不可用则返回空列表并附带错误信息。
+    默认使用服务端 DASHSCOPE_API_KEY；当传入 embedding_config (BYOK) 时，
+    使用访客自带的 embedding key 临时构建向量库（按模型隔离 collection），
+    首次调用会自动对 data/records 建库。如果向量库不可用则返回错误信息。
     """
     try:
-        from src.vector_store import get_vector_store
+        from src.vector_store import get_vector_store, build_embedding_client, VectorStore
+        from src.storage import DATA_DIR
     except ImportError:
         return [{"error": "vector_store 模块不可用"}]
 
+    # --- BYOK 路径：访客自带 embedding key ---
+    if embedding_config:
+        client = build_embedding_client(embedding_config)
+        if not client.is_configured:
+            return [{"error": "向量搜索未就绪: 未提供 Embedding API Key"}]
+        model_slug = re.sub(r"[^a-zA-Z0-9]", "_", (client.model or "default"))[:32]
+        store = VectorStore(embedding=client, collection_name=f"records_byok_{model_slug}")
+        store.index_if_empty(DATA_DIR / "records")
+        try:
+            return store.semantic_search(query, top_k=top_k)
+        except Exception as exc:
+            return [{"error": f"语义搜索失败: {exc}"}]
+
+    # --- 服务端路径 ---
     store = get_vector_store()
     if not store.is_ready:
         return [{"error": "向量搜索未就绪: DASHSCOPE_API_KEY 未配置或 chromadb 未安装"}]
@@ -199,6 +215,7 @@ def hybrid_search(
     top_k: int = 5,
     keyword_weight: float = 0.4,
     semantic_weight: float = 0.6,
+    embedding_config: dict | None = None,
 ) -> list[dict]:
     """融合关键词搜索 + 向量语义搜索的混合检索。
 
@@ -209,7 +226,7 @@ def hybrid_search(
     kw_results = search_records(keyword, records_dir)
 
     # 2. 语义搜索
-    sem_results = semantic_search(keyword, top_k=top_k)
+    sem_results = semantic_search(keyword, top_k=top_k, embedding_config=embedding_config)
 
     # 如果语义搜索不可用，退化为纯关键词搜索
     if sem_results and isinstance(sem_results[0], dict) and sem_results[0].get("error"):

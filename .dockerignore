@@ -1,0 +1,24 @@
+# 版本控制 / 缓存
+.git
+**/__pycache__
+*.pyc
+*.pyo
+
+# 前端依赖与构建产物（镜像内重新构建）
+node_modules
+frontend/dist
+frontend/dist_test
+
+# 密钥：绝不打入镜像
+.env
+
+# 运行时可变数据：不随镜像分发（chroma 索引本机重建，memory.db 本机生成）
+data/chroma
+data/memory.db
+
+# 本地虚机
+venv
+.venv
+
+# WorkBuddy 工作区
+.workbuddy

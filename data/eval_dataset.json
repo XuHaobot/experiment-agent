@@ -1,0 +1,66 @@
+[
+  {
+    "id": "eval-01-cuda-oom",
+    "input": "任务：训练图像分类模型\n数据集：COCO2017\n模型：ResNet50\n报错：CUDA out of memory\n解决：把 batch_size 从 64 降到 16，并开启梯度累积后显存占用恢复正常。",
+    "expected": {
+      "task": "图像分类",
+      "dataset": "COCO",
+      "model": "ResNet50",
+      "error_type": "cuda_oom",
+      "summary": "在 COCO2017 上训练 ResNet50 图像分类模型时出现 CUDA 显存溢出，通过将 batch_size 从 64 降到 16 并开启梯度累积解决。"
+    }
+  },
+  {
+    "id": "eval-02-module-not-found",
+    "input": "任务：复现 YOLOv8 目标检测实验\n数据集：VOC2007\n模型：YOLOv8n\n报错：ModuleNotFoundError: No module named 'torch'\n解决：执行 pip install torch torchvision 后重新运行训练脚本即可。",
+    "expected": {
+      "task": "目标检测",
+      "dataset": "VOC",
+      "model": "YOLOv8n",
+      "error_type": "dependency",
+      "summary": "复现 YOLOv8n 在 VOC2007 上的目标检测实验时缺少 torch 依赖，通过 pip 安装 torch 与 torchvision 解决。"
+    }
+  },
+  {
+    "id": "eval-03-file-not-found",
+    "input": "任务：训练语音识别模型\n数据集：CommonVoice\n模型：Whisper-small\n报错：FileNotFoundError: [Errno 2] No such file: '/data/train.tsv'\n解决：检查数据集路径，确认 CommonVoice 已解压到正确目录后重新运行。",
+    "expected": {
+      "task": "语音识别",
+      "dataset": "CommonVoice",
+      "model": "Whisper",
+      "error_type": "file_not_found",
+      "summary": "训练 Whisper-small 语音识别模型时找不到训练清单文件，确认 CommonVoice 已正确解压后路径问题解决。"
+    }
+  },
+  {
+    "id": "eval-04-bert-finetune",
+    "input": "任务：微调 BERT 做中文文本分类\n数据集：IMDB\n模型：bert-base-chinese\n结论：验证集准确率从 0.82 提升到 0.91\n下一步：尝试更大的 batch_size 与学习率搜索以进一步提升。",
+    "expected": {
+      "task": "文本分类",
+      "dataset": "IMDB",
+      "model": "bert-base-chinese",
+      "summary": "微调 bert-base-chinese 做中文文本分类，验证集准确率从 0.82 提升到 0.91，下一步计划尝试更大 batch_size 与学习率搜索。"
+    }
+  },
+  {
+    "id": "eval-05-mapreduce-oom",
+    "input": "任务：大数据处理性能对比实验\n数据集：HDFS 日志\n模型：无\n报错：java.lang.OutOfMemoryError: Java heap space\n解决：调大 MapReduce 的堆内存配置 -Xmx2048m 后任务稳定运行。",
+    "expected": {
+      "task": "大数据处理",
+      "dataset": "HDFS",
+      "model": "",
+      "error_type": "oom",
+      "summary": "进行 HDFS 日志的大数据处理性能对比实验时 MapReduce 出现 Java 堆内存溢出，调大堆内存 -Xmx2048m 后任务稳定。"
+    }
+  },
+  {
+    "id": "eval-06-gnn-property",
+    "input": "任务：构建分子性质预测模型\n数据集：ZINC\n模型：GIN\n结论：测试集 ROC-AUC 达到 0.87\n下一步：引入更丰富的边特征以提升表达能力。",
+    "expected": {
+      "task": "分子性质预测",
+      "dataset": "ZINC",
+      "model": "GIN",
+      "summary": "使用 GIN 在 ZINC 上构建分子性质预测模型，测试集 ROC-AUC 达到 0.87，下一步引入更丰富的边特征。"
+    }
+  }
+]

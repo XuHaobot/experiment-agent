@@ -1,0 +1,23 @@
+# 轻量应用服务器 / 任意装了 Docker 的机器使用
+# 用法：
+#   1) 复制 .env.server.example 为 .env 并填入你的 Key
+#   2) docker compose up -d --build
+#   3) 浏览器访问 http://<服务器IP>:5001
+services:
+  experiment-agent:
+    build: .
+    container_name: experiment-agent
+    ports:
+      - "5001:5001"
+    environment:
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_MODEL: ${LLM_MODEL}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      AUTO_REBUILD_VECTORS: "true"
+    volumes:
+      - agent_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  agent_data:

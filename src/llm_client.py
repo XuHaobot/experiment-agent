@@ -17,7 +17,7 @@ if load_dotenv:
     load_dotenv(PROJECT_ROOT / ".env")
 
 
-JSON_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(?P<body>.*?)\s*```", re.IGNORECASE | re.DOTALL)
+JSON_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(?P<body>.*?)\s```", re.IGNORECASE | re.DOTALL)
 
 
 @dataclass
@@ -144,15 +144,35 @@ class LLMClient:
                 continue
 
 
-def call_llm(prompt: str) -> str:
-    """Call the configured OpenAI-compatible LLM and return raw text."""
-    return LLMClient.from_env().call_llm(prompt)
+def build_llm_client(llm_config: dict | None = None) -> "LLMClient":
+    """构建 LLM 客户端，BYOK（自带密钥）优先。
+
+    请求级 ``llm_config`` 优先；缺失字段回退到服务端环境变量（``.env``）。
+    这样既支持「用户绑定自己的 Key」，也兼容旧有的服务端统一配置。
+    用户的 Key 仅在本次请求内使用：不落盘、不打日志、不回显。
+    """
+    if not llm_config:
+        return LLMClient.from_env()
+    return LLMClient(
+        api_key=llm_config.get("api_key") or os.getenv("LLM_API_KEY", ""),
+        base_url=llm_config.get("base_url") or os.getenv("LLM_BASE_URL", ""),
+        model=llm_config.get("model") or os.getenv("LLM_MODEL", ""),
+    )
+
+
+def call_llm(prompt: str, llm_config: dict | None = None) -> str:
+    """Call the configured OpenAI-compatible LLM and return raw text.
+
+    llm_config: 可选，BYOK 覆盖（api_key / base_url / model）。
+    """
+    return build_llm_client(llm_config).call_llm(prompt)
 
 
 def call_llm_with_tools(
     messages: list[dict],
     tools: list[dict] | None = None,
     temperature: float = 0.1,
+    llm_config: dict | None = None,
 ) -> dict:
     """调用带 tools 参数的 LLM API（OpenAI Function Calling 格式）。
 
@@ -164,6 +184,8 @@ def call_llm_with_tools(
         OpenAI function calling 格式的 tools 定义。
     temperature : float
         采样温度。
+    llm_config : dict | None
+        可选，BYOK 覆盖（api_key / base_url / model）。
 
     Returns
     -------
@@ -171,7 +193,7 @@ def call_llm_with_tools(
         LLM 返回的 message 对象（可能包含 content 和/或 tool_calls）。
         如果出错，返回 {"content": "ERROR: ...", "tool_calls": None}。
     """
-    client = LLMClient.from_env()
+    client = build_llm_client(llm_config)
     if not client.is_configured:
         return {
             "content": "LLM_CONFIG_ERROR: LLM_API_KEY, LLM_BASE_URL, and LLM_MODEL must be configured.",

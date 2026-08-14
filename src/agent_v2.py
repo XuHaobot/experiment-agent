@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Any
 
-from src.llm_client import call_llm_with_tools, LLMClient
+from src.llm_client import call_llm_with_tools, LLMClient, build_llm_client
 from src.storage import DATA_DIR
 from src.tools.search_tool import search_records, hybrid_search
 from src.tools.data_analysis_tool import analyze_data, evaluate_answer
@@ -180,11 +180,14 @@ class AgentV2:
 
     def __init__(self, max_iterations: int = 5):
         self.max_iterations = max_iterations
+        self.embedding_config = None
 
     def chat(
         self,
         user_message: str,
         conversation_history: list[dict] | None = None,
+        llm_config: dict | None = None,
+        embedding_config: dict | None = None,
     ) -> dict:
         """主入口：处理用户消息并返回 Agent 回答。
 
@@ -210,11 +213,12 @@ class AgentV2:
         trace: list[dict] = []
         final_answer = ""
         actual_iterations = 0
+        self.embedding_config = embedding_config
 
         for iteration in range(self.max_iterations):
             actual_iterations = iteration + 1
             # 1. 调用 LLM（携带 tools 定义）
-            response = call_llm_with_tools(messages, tools=AGENT_TOOLS)
+            response = call_llm_with_tools(messages, tools=AGENT_TOOLS, llm_config=llm_config)
 
             # 检查错误
             content = response.get("content", "") or ""
@@ -286,6 +290,8 @@ class AgentV2:
         self,
         user_message: str,
         conversation_history: list[dict] | None = None,
+        llm_config: dict | None = None,
+        embedding_config: dict | None = None,
     ):
         """流式对话生成器 — 逐事件 yield 结果。
 
@@ -302,12 +308,13 @@ class AgentV2:
         trace: list[dict] = []
         full_answer = ""
         actual_iterations = 0
+        self.embedding_config = embedding_config
 
         for iteration in range(self.max_iterations):
             actual_iterations = iteration + 1
 
             # 工具调用阶段使用非流式（需要完整 JSON 解析 tool_calls）
-            response = call_llm_with_tools(messages, tools=AGENT_TOOLS)
+            response = call_llm_with_tools(messages, tools=AGENT_TOOLS, llm_config=llm_config)
 
             content = response.get("content", "") or ""
             if content.startswith(("LLM_CONFIG_ERROR:", "LLM_API_ERROR:", "LLM_RESPONSE_ERROR:")):
@@ -318,7 +325,7 @@ class AgentV2:
 
             # 无工具调用 → 这是最终回答，改用流式重新请求以逐 token 输出
             if not tool_calls:
-                client = LLMClient.from_env()
+                client = build_llm_client(llm_config)
                 accumulated = ""
                 for token in client.call_llm_stream(messages):
                     if token.startswith(("LLM_CONFIG_ERROR:", "LLM_API_ERROR:", "LLM_RESPONSE_ERROR:")):
@@ -412,7 +419,7 @@ class AgentV2:
         top_k = args.get("top_k", 5)
 
         # 优先使用混合搜索，退化为关键词搜索
-        results = hybrid_search(query, RECORDS_DIR, top_k=top_k)
+        results = hybrid_search(query, RECORDS_DIR, top_k=top_k, embedding_config=self.embedding_config)
 
         # 精简返回字段
         simplified = []
