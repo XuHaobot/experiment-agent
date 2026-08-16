@@ -157,9 +157,10 @@ function clear() {
   display: flex; align-items: center; justify-content: center; z-index: 1000;
 }
 .modal-card {
-  width: 420px; max-width: 92vw; background: var(--bg-primary, #fff);
-  border: 1px solid var(--border-secondary, #ddd); border-radius: 10px;
-  padding: 18px 20px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  width: 400px; max-width: 92vw; max-height: 82vh; overflow-y: auto;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-secondary, #ddd); border-radius: 14px;
+  padding: 18px 22px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   color: var(--text-primary, #222);
 }
 .modal-header {
@@ -214,7 +215,7 @@ function clear() {
 }
 .btn-clear:hover { background: var(--bg-tertiary, #f0f0f0); }
 .btn-save {
-  border: 1px solid var(--accent, #4a7cff); background: var(--accent, #4a7cff); color: #fff;
+  border: 1px solid #F3A04C; background: #F3A04C; color: #fff;
 }
 .btn-save:hover { opacity: 0.9; }
 </style>

@@ -309,8 +309,11 @@ class VectorStore:
             raise RuntimeError("chromadb 未安装。请运行: pip install chromadb")
 
         self._client = chromadb.PersistentClient(path=self._persist_dir)
+        # 禁用 ChromaDB 内置 ONNX embedding：本项目自带 DashScope 向量，
+        # 且 onnxruntime>=1.20 在 Python3.13 下与 ChromaDB 默认 embedding 不兼容。
         self._collection = self._client.get_or_create_collection(
             name=self._collection_name,
+            embedding_function=None,
             metadata={"hnsw:space": "cosine"},
         )
 

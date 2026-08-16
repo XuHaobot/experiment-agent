@@ -282,8 +282,8 @@ cd frontend && npm install && cd ..
 cp .env.example .env
 # 编辑 .env，填入 LLM_API_KEY / DASHSCOPE_API_KEY
 
-# 4. 启动后端（端口 8000）
-python -m uvicorn backend.main:app --reload --port 8000
+# 4. 启动后端（端口 5001，必须与前端 vite 代理一致）
+python -m uvicorn backend.main:app --reload --port 5001
 
 # 5. 启动前端（端口 5173）
 cd frontend && npm run dev
@@ -296,6 +296,8 @@ cd frontend && npm run dev
 ```bash
 streamlit run app.py
 ```
+
+> ⚠️ **Python 3.13 + ChromaDB 兼容提示**：`requirements.txt` 含 `chromadb>=0.5.0`，其默认会加载内置 ONNX embedding；而 onnxruntime ≥ 1.20 重构了 Rust 绑定、移除了 chromadb 仍调用的属性，在 Python 3.13 下安装/运行会报 `'RustBindingsAPI' object has no attribute 'bindings'`。**本项目已修复**：`src/vector_store.py` 在创建 collection 时显式传入 `embedding_function=None`，改用 DashScope 自己的向量，无需 chroma 内置 ONNX——你直接 `pip install -r requirements.txt` 即可，无需额外处理。若默认 PyPI 源安装缓慢/失败，可换国内镜像：`pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt`。
 
 ---
 
