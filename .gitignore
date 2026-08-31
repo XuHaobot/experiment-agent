@@ -45,25 +45,28 @@ pnpm-debug.log*
 Thumbs.db
 desktop.ini
 
+# ===== Python Virtualenvs =====
+venv*/
+env*/
+.venv*/
+.webui_secret_key
+_quarantine/
+
 # ===== 数据与运行时产物 =====
-# 实验记录 / 报告 / 原始数据：包含个人实验信息，**不**上传到公开仓库
-data/raw/
-data/records/
-data/reports/
-data/graph/
-data/experiments/
-data/chroma/
-data/uploads/
+data/
 logs/
 *.log
 
 # ChromaDB 持久化文件
 *.sqlite3
 *.db
+*.duckdb
 chroma-embeddings.parquet
 
 # ===== 测试与临时文件 =====
 test_upload.txt
+report.json
 /tmp/
 /scratch/
 /output/
+

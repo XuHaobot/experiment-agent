@@ -1,9 +1,15 @@
 <template>
   <div class="workspace-main">
+    <!-- 主内容区 -->
+    <div class="workspace-body">
+      <!-- 抽屉遮罩 -->
+      <div class="drawer-backdrop" v-if="['features','report','prototype'].includes(activeNav)" @click="activeNav = 'chat'"></div>
+
     <!-- 顶部工具栏 -->
     <div class="top-bar">
       <div class="top-bar-left">
         <h1 class="app-title">Experiment Agent</h1>
+        <a href="/projects" class="btn-projects-entry" title="Research Projects">🔬 Projects</a>
         <span class="status-badge" v-if="selectedRecord">
           {{ selectedRecord.task || selectedRecord.id }}
         </span>
@@ -117,7 +123,7 @@
     </div>
 
     <!-- 三栏布局主体 -->
-    <div class="three-col-layout">
+    <div class="three-col-layout" :class="layoutClass">
       <!-- ========== 左侧栏：实验管理 + 记录列表 ========== -->
       <aside class="col-left">
         <!-- 当前实验指示器 -->
@@ -244,7 +250,7 @@
             </div>
             <div v-if="messages.length === 0 && !isLoading" class="empty-chat">
               <div class="empty-icon">🧪</div>
-              <p>选择左侧实验或直接输入问题开始对话</p>
+              <p>点击左侧导航「实验记录」或直接输入问题开始对话</p>
               <div class="quick-actions">
                 <button v-for="qa in quickQuestions" :key="qa" class="quick-btn" @click="sendQuickQuestion(qa)">{{ qa }}</button>
               </div>
@@ -258,7 +264,13 @@
           </div>
 
           <div class="input-area">
-            <textarea v-model="userInput" placeholder="输入你的问题... Enter 发送 · Shift+Enter 换行" class="chat-input" rows="3" @keydown.exact.enter.prevent="sendMessage"></textarea>
+            <div v-if="cmdMatches.length" class="cmd-pop">
+              <button v-for="c in cmdMatches" :key="c.cmd" class="cmd-item" @click="pickCmd(c)">
+                <span class="cmd-name">/{{ c.cmd }}</span>
+                <span class="cmd-desc">{{ c.name }} · {{ c.desc }}</span>
+              </button>
+            </div>
+            <textarea v-model="userInput" placeholder="输入你的问题... 输入 / 唤起命令 · Enter 发送" class="chat-input" rows="3" @keydown.exact.enter.prevent="sendMessage"></textarea>
             <div class="input-toolbar">
               <div class="toolbar-left">
                 <button class="tool-btn" @click="handleAction('chart')">生成图表</button>
@@ -453,6 +465,21 @@
           <div class="status-item" :class="records.length ? 'ok' : 'warn'"><span class="status-dot"></span><span>{{ records.length }} 条实验记录</span></div>
         </div>
       </aside>
+
+      <!-- ========== 功能库抽屉（左） ========== -->
+      <aside class="drawer drawer-feature">
+        <FeaturePanel @activate="onActivateFeature" />
+      </aside>
+
+      <!-- ========== 报告工坊抽屉（右） ========== -->
+      <aside class="drawer drawer-report">
+        <ReportStudio :messages="messages" :records="records" :selected-record="selectedRecord" />
+      </aside>
+
+      <!-- ========== 画原型图抽屉（右） ========== -->
+      <aside class="drawer drawer-proto">
+        <PrototypeStudio />
+      </aside>
     </div>
 
     <!-- 实验时间线全屏视图 -->
@@ -624,6 +651,7 @@
         </div>
       </div>
     </div>
+    </div>
   </div>
 </template>
 
@@ -636,6 +664,9 @@ import LlmSettings from '../components/LlmSettings.vue'
 import ExperimentTimeline from '../components/ExperimentTimeline.vue'
 import FaqPanel from '../components/FaqPanel.vue'
 import EvalPanel from '../components/EvalPanel.vue'
+import FeaturePanel from '../components/FeaturePanel.vue'
+import ReportStudio from '../components/ReportStudio.vue'
+import PrototypeStudio from '../components/PrototypeStudio.vue'
 
 // ========== marked 配置 ==========
 marked.setOptions({ breaks: true, gfm: true })
@@ -667,6 +698,55 @@ const analyzing = ref(false)
 const analyzeProgress = ref(0)
 const analyzeError = ref('')
 const relatedFaq = ref([])         // 分析失败时展示的相关历史排查建议
+
+// ========== 导航轨 + 抽屉 ==========
+const activeNav = ref('records')
+const layoutClass = computed(() => ({
+  'd-records': activeNav.value === 'records',
+  'd-graph': activeNav.value === 'graph',
+  'd-features': activeNav.value === 'features',
+  'd-report': activeNav.value === 'report',
+  'd-proto': activeNav.value === 'prototype',
+}))
+
+function onActivateFeature(f) {
+  if (f.action === 'report') { activeNav.value = 'report'; return }
+  if (f.action === 'prototype') { activeNav.value = 'prototype'; return }
+  if (f.action === 'graph') { activeNav.value = 'graph'; return }
+  if (f.action === 'records') { activeNav.value = 'records'; return }
+  if (f.action === 'prompt') {
+    userInput.value = '/' + f.cmd + ' '
+    activeNav.value = 'chat'
+    nextTick(() => sendMessage())
+  }
+}
+
+// ========== 斜杠命令面板 ==========
+const slashCommands = [
+  { cmd: 'compare', name: '实验对比', desc: '多实验指标并排对比' },
+  { cmd: 'anomaly', name: '异常检测', desc: '自动抓取训练异常' },
+  { cmd: 'sensitivity', name: '敏感度分析', desc: '参数敏感性扫描' },
+  { cmd: 'significance', name: '显著性检验', desc: '统计显著性 p 值' },
+  { cmd: 'paper', name: '文献速读', desc: '贴 arXiv 出要点' },
+  { cmd: 'weekly', name: '周报进展', desc: '生成本周进展' },
+  { cmd: 'defense', name: '答辩大纲', desc: '生成答辩结构' },
+  { cmd: 'arch', name: '架构图', desc: '绘制系统架构' },
+  { cmd: 'mindmap', name: '思维导图', desc: '概念结构梳理' },
+  { cmd: 'chart', name: '数据图表', desc: '生成可视化图表' },
+  { cmd: 'explain', name: '代码解释', desc: '逐段讲清代码' },
+  { cmd: 'bug', name: 'Bug 诊断', desc: '报错根因分析' },
+  { cmd: 'env', name: '环境快照', desc: '导出环境信息' },
+  { cmd: 'log', name: '日志摘要', desc: '长日志浓缩' },
+]
+const cmdMatches = computed(() => {
+  if (!userInput.value.startsWith('/')) return []
+  const q = userInput.value.slice(1).toLowerCase()
+  return slashCommands.filter(c => c.cmd.includes(q) || c.name.toLowerCase().includes(q))
+})
+function pickCmd(c) {
+  userInput.value = '/' + c.cmd + ' '
+  sendMessage()
+}
 const showUploadDialog = ref(false)
 const uploadTargetExp = ref(null)  // 弹窗对应的目标实验
 
@@ -1683,6 +1763,8 @@ watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
 
 <style scoped>
 .workspace-main { display: flex; flex-direction: column; height: 100vh; background: var(--bg-primary, #F4F4F6); color: var(--text-primary, rgba(0,0,0,.8)); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
+.workspace-body { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 15; }
 
 /* ---- 弹窗 ---- */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; z-index: 100; }
@@ -1708,6 +1790,8 @@ watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
 .top-bar-right { display: flex; gap: 8px; align-items: center; }
 .btn-icon-top { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0.5px solid var(--border-secondary, rgba(0,0,0,.08)); border-radius: 8px; background: var(--bg-primary, #F4F4F6); color: var(--text-secondary, rgba(0,0,0,.5)); cursor: pointer; transition: border-color .15s, color .15s; }
 .btn-icon-top:hover { border-color: #E58522; color: #E58522; }
+.btn-projects-entry { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 8px; background: #ede9fe; color: #6366f1; font-size: 13px; font-weight: 600; text-decoration: none; border: 1px solid #c4b5fd; transition: background .15s; margin-left: 8px; }
+.btn-projects-entry:hover { background: #ddd6fe; }
 .demo-badge { font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 999px; background: rgba(64,120,220,.12); color: #2f6bd6; border: 0.5px solid rgba(64,120,220,.3); cursor: default; }
 .demo-banner { padding: 8px 20px; font-size: 12px; color: #6a4a00; background: rgba(245,200,80,.16); border-bottom: 0.5px solid rgba(220,170,40,.3); }
 .demo-banner::first-letter { margin-right: 2px; }
@@ -1718,7 +1802,16 @@ watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
 .btn-secondary:hover { background: rgba(0,0,0,.06); }
 
 /* ---- 三栏 ---- */
-.three-col-layout { display: grid; grid-template-columns: 280px 1fr 320px; flex: 1; min-height: 0; overflow: hidden; }
+.three-col-layout { display: grid; grid-template-columns: 280px 1fr 320px; flex: 1; min-height: 0; overflow: hidden; position: relative; }
+
+/* ---- 抽屉 ---- */
+.drawer { position: absolute; top: 0; bottom: 0; z-index: 20; background: var(--panel-bg, #FEFDFC); transition: transform .25s ease; overflow: auto; }
+.drawer-feature { left: 0; width: 280px; transform: translateX(-100%); border-right: 0.5px solid var(--border-secondary, rgba(0,0,0,.08)); }
+.drawer-report { right: 0; width: 320px; transform: translateX(100%); border-left: 0.5px solid var(--border-secondary, rgba(0,0,0,.08)); }
+.drawer-proto { right: 0; width: 320px; transform: translateX(100%); border-left: 0.5px solid var(--border-secondary, rgba(0,0,0,.08)); }
+.three-col-layout.d-features .drawer-feature { transform: translateX(0); }
+.three-col-layout.d-report .drawer-report { transform: translateX(0); }
+.three-col-layout.d-proto .drawer-proto { transform: translateX(0); }
 
 /* ---- 左栏 ---- */
 .col-left { background: var(--panel-bg, #FEFDFC); border-right: 0.5px solid var(--border-secondary, rgba(0,0,0,.08)); display: flex; flex-direction: column; overflow: hidden; }
@@ -2051,8 +2144,8 @@ mark.fs-hl-active { background: var(--accent, #F3A04C); color: #fff; border-radi
 .fs-report-body :deep(th), .fs-report-body :deep(td) { border: 0.5px solid var(--border-secondary, rgba(0,0,0,.08)); padding: 6px 10px; text-align: left; }
 .fs-report-body :deep(blockquote) { border-left: 3px solid #F3A04C; padding-left: 12px; margin: 8px 0; color: var(--text-secondary); }
 
-@media (max-width: 1200px) { .three-col-layout { grid-template-columns: 240px 1fr 280px; } }
-@media (max-width: 900px) { .three-col-layout { grid-template-columns: 1fr; } .col-left { max-height: 35vh; } .col-right { max-height: 35vh; } }
+@media (max-width: 1200px) { .three-col-layout { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .three-col-layout { grid-template-columns: 1fr; } }
 
 /* 流式输出光标动画 */
 .msg-bubble.is-streaming .msg-text::after {

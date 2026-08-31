@@ -279,3 +279,233 @@ def _trim(text: str, max_len: int = 80) -> str:
     if not text or len(text) <= max_len:
         return text
     return text[:max_len - 3] + "..."
+
+
+# =============================================================================
+# V2：Research Graph 增量构建
+# =============================================================================
+
+def build_research_graph(
+    base_graph: dict,
+    project: dict | None = None,
+    hypotheses: list[dict] | None = None,
+    papers: list[dict] | None = None,
+    runs: list[dict] | None = None,
+    artifacts: list[dict] | None = None,
+    conclusions: list[dict] | None = None,
+) -> dict:
+    """
+    在现有实验图谱（base_graph）基础上，叠加 Research Graph V2 层级：
+    - ResearchProject / Question 节点
+    - Hypothesis 节点（以及与 Experiment 的 TESTED_BY 关系）
+    - ExperimentRun 节点（Experiment -> HAS_RUN -> ExperimentRun）
+    - Artifact 节点（ExperimentRun / Experiment -> PRODUCES -> Artifact）
+    - Conclusion / Evidence 节点（Conclusion -> SUPPORTS -> Hypothesis, Evidence -> REFERENCES -> Run/Paper/Artifact）
+    - Paper 节点（以及 REFERENCES 关系）
+    """
+    entities = list(base_graph.get("entities", []))
+    relations = list(base_graph.get("relations", []))
+    entity_ids = {e["id"] for e in entities}
+    _seen_names: set = set()
+
+    # ------------------------------------------------------------------ Project
+    if project:
+        proj_id = _entity_id(schema.ENTITY_RESEARCH_PROJECT, project["id"])
+        if proj_id not in entity_ids:
+            _add_entity(
+                entities, entity_ids, _seen_names,
+                proj_id,
+                schema.ENTITY_RESEARCH_PROJECT,
+                _clean_name(project.get("name", "Project")),
+                {
+                    "project_id": project["id"],
+                    "description": project.get("description", ""),
+                },
+            )
+        # 将 Experiment 节点连接到 Project
+        for e in base_graph.get("entities", []):
+            if e["type"] == schema.ENTITY_EXPERIMENT:
+                relations.append({
+                    "source": e["id"],
+                    "target": proj_id,
+                    "relation": schema.REL_BELONGS_TO,
+                })
+
+        # Research Questions
+        for q in project.get("questions", []):
+            q_id = _entity_id(schema.ENTITY_RESEARCH_QUESTION, q["id"])
+            if q_id not in entity_ids:
+                _add_entity(
+                    entities, entity_ids, _seen_names,
+                    q_id,
+                    schema.ENTITY_RESEARCH_QUESTION,
+                    _clean_name(q.get("text", "Question")[:50]),
+                    {"question_id": q["id"]},
+                )
+            _add_relation(relations, proj_id, q_id, schema.REL_HAS_QUESTION)
+
+    # --------------------------------------------------------------- Hypotheses
+    if hypotheses:
+        for hyp in hypotheses:
+            hyp_id = _entity_id(schema.ENTITY_HYPOTHESIS, hyp["id"])
+            if hyp_id not in entity_ids:
+                _add_entity(
+                    entities, entity_ids, _seen_names,
+                    hyp_id,
+                    schema.ENTITY_HYPOTHESIS,
+                    _clean_name(hyp.get("title", "Hypothesis")[:50]),
+                    {
+                        "hypothesis_id": hyp["id"],
+                        "status": hyp.get("status", "pending"),
+                        "description": hyp.get("description", ""),
+                    },
+                )
+            # Hypothesis → Experiment (TESTED_BY)
+            for exp_id in hyp.get("experiment_ids", []):
+                for e in base_graph.get("entities", []):
+                    if e["type"] == schema.ENTITY_EXPERIMENT and exp_id in e.get("properties", {}).get("record_id", ""):
+                        _add_relation(relations, hyp_id, e["id"], schema.REL_TESTED_BY)
+
+    # ------------------------------------------------------------------ Runs
+    if runs:
+        for run_data in runs:
+            run_id = _entity_id(schema.ENTITY_EXPERIMENT_RUN, run_data["id"])
+            if run_id not in entity_ids:
+                _add_entity(
+                    entities, entity_ids, _seen_names,
+                    run_id,
+                    schema.ENTITY_EXPERIMENT_RUN,
+                    _clean_name(f"Run {run_data['id'][-6:]} ({run_data.get('status', 'pending')})"),
+                    {
+                        "run_id": run_data["id"],
+                        "experiment_id": run_data.get("experiment_id", ""),
+                        "status": run_data.get("status", "pending"),
+                        "metrics": run_data.get("metrics", {}),
+                    },
+                )
+            # Experiment -> HAS_RUN -> ExperimentRun
+            parent_exp_id = run_data.get("experiment_id")
+            if parent_exp_id:
+                for e in base_graph.get("entities", []):
+                    if e["type"] == schema.ENTITY_EXPERIMENT and parent_exp_id in e.get("properties", {}).get("record_id", ""):
+                        _add_relation(relations, e["id"], run_id, schema.REL_HAS_RUN)
+
+    # ---------------------------------------------------------------- Artifacts
+    if artifacts:
+        for art in artifacts:
+            art_id = _entity_id(schema.ENTITY_ARTIFACT, art["id"])
+            if art_id not in entity_ids:
+                _add_entity(
+                    entities, entity_ids, _seen_names,
+                    art_id,
+                    schema.ENTITY_ARTIFACT,
+                    _clean_name(art.get("name", "Artifact")),
+                    {
+                        "artifact_id": art["id"],
+                        "type": art.get("type", "other"),
+                        "version": art.get("version", 1),
+                        "url": art.get("url", ""),
+                    },
+                )
+            # Source record / run -> PRODUCES -> Artifact
+            src_rec = art.get("source_record_id")
+            if src_rec:
+                for e in base_graph.get("entities", []):
+                    if e["type"] == schema.ENTITY_EXPERIMENT and src_rec in e.get("properties", {}).get("record_id", ""):
+                        _add_relation(relations, e["id"], art_id, schema.REL_PRODUCES)
+
+    # ------------------------------------------------ Conclusions & Evidence
+    if conclusions:
+        for conc in conclusions:
+            conc_id = _entity_id(schema.ENTITY_CONCLUSION, conc["id"])
+            if conc_id not in entity_ids:
+                _add_entity(
+                    entities, entity_ids, _seen_names,
+                    conc_id,
+                    schema.ENTITY_CONCLUSION,
+                    _clean_name(conc.get("text", "Conclusion")[:60]),
+                    {
+                        "conclusion_id": conc["id"],
+                        "confidence": conc.get("confidence", "medium"),
+                        "source": conc.get("source", "user"),
+                    },
+                )
+            # Conclusion -> SUPPORTS -> Hypothesis
+            if conc.get("hypothesis_id"):
+                h_target_id = _entity_id(schema.ENTITY_HYPOTHESIS, conc["hypothesis_id"])
+                if h_target_id in entity_ids:
+                    _add_relation(relations, conc_id, h_target_id, schema.REL_SUPPORTS)
+
+            # Evidence references
+            for ref in conc.get("evidence_refs", []):
+                ev_type = ref.get("type")
+                ev_raw_id = ref.get("id")
+                if not ev_type or not ev_raw_id:
+                    continue
+                # 寻找匹配的目标实体
+                for e in entities:
+                    if ev_raw_id in e.get("id", "") or ev_raw_id in str(e.get("properties", {})):
+                        _add_relation(relations, conc_id, e["id"], schema.REL_SUPPORTS)
+
+    # ------------------------------------------------------------------ Papers
+    if papers:
+        for paper in papers[:10]:
+            paper_title = paper.get("title", "") or ""
+            if not paper_title:
+                continue
+            paper_id = _entity_id(schema.ENTITY_PAPER, paper.get("id", paper_title))
+            if paper_id not in entity_ids:
+                _add_entity(
+                    entities, entity_ids, _seen_names,
+                    paper_id,
+                    schema.ENTITY_PAPER,
+                    _clean_name(paper_title[:50]),
+                    {
+                        "doi": paper.get("doi", ""),
+                        "year": paper.get("year", ""),
+                        "venue": paper.get("venue", ""),
+                        "url": paper.get("url", ""),
+                        "citation_count": paper.get("citation_count", 0),
+                        "source": paper.get("source", ""),
+                    },
+                )
+            # Paper → Author
+            for author_name in (paper.get("authors") or [])[:3]:
+                if not author_name:
+                    continue
+                author_id = _entity_id(schema.ENTITY_AUTHOR, author_name)
+                if author_id not in entity_ids:
+                    _add_entity(
+                        entities, entity_ids, _seen_names,
+                        author_id,
+                        schema.ENTITY_AUTHOR,
+                        _clean_name(author_name),
+                        {},
+                    )
+                _add_relation(relations, paper_id, author_id, schema.REL_AUTHORED_BY)
+
+            # 将 Paper 连到第一个 Experiment（REFERENCES）
+            for e in base_graph.get("entities", []):
+                if e["type"] == schema.ENTITY_EXPERIMENT:
+                    _add_relation(relations, e["id"], paper_id, schema.REL_REFERENCES)
+                    break
+
+    # 去重 relations
+    seen_rels = set()
+    deduped_relations = []
+    for r in relations:
+        rel_type = r.get("relation") or r.get("type") or ""
+        key = (r.get("source"), r.get("target"), rel_type)
+        if key not in seen_rels:
+            seen_rels.add(key)
+            # 保证 type 与 relation 兼容共存
+            r_copy = dict(r)
+            r_copy["type"] = rel_type
+            r_copy["relation"] = rel_type
+            deduped_relations.append(r_copy)
+
+    return {
+        "entities": entities,
+        "relations": deduped_relations,
+        "graph_version": "v2",
+    }

@@ -3,30 +3,23 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   {
     path: '/',
-    name: 'upload',
-    component: () => import('../views/UploadView.vue'),
+    name: 'home',
+    component: () => import('../views/ProjectDetailView.vue'),
   },
   {
-    path: '/analysis/:recordId',
-    name: 'analysis',
-    component: () => import('../views/AnalysisView.vue'),
+    path: '/projects',
+    name: 'projects',
+    component: () => import('../views/ProjectDetailView.vue'),
+  },
+  {
+    path: '/projects/:projectId',
+    name: 'project-detail',
+    component: () => import('../views/ProjectDetailView.vue'),
     props: true,
   },
   {
-    path: '/report/:recordId',
-    name: 'report',
-    component: () => import('../views/ReportView.vue'),
-    props: true,
-  },
-  {
-    path: '/graph/:graphFile?',
-    name: 'graph',
-    component: () => import('../views/GraphView.vue'),
-  },
-  {
-    path: '/history',
-    name: 'history',
-    component: () => import('../views/HistoryView.vue'),
+    path: '/:pathMatch(.*)*',
+    redirect: '/',
   },
 ]
 

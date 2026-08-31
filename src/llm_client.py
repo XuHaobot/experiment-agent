@@ -42,6 +42,18 @@ class LLMClient:
         return bool(self.api_key and self.base_url and self.model)
 
     def call_llm(self, prompt: str) -> str:
+        # Route through LLMGateway & Privacy Gateway if available
+        try:
+            from backend.llm.gateway import llm_gateway
+            from backend.security.privacy_gateway import PrivacyViolationError
+            try:
+                res = llm_gateway.safe_chat(prompt)
+                return res.content
+            except PrivacyViolationError as pve:
+                return f"PRIVACY_DENIED: {pve}"
+        except Exception:
+            pass
+
         if not self.is_configured:
             return (
                 "LLM_CONFIG_ERROR: LLM_API_KEY, LLM_BASE_URL, and LLM_MODEL "

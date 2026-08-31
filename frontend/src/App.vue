@@ -1,64 +1,104 @@
 <template>
-  <WorkspaceMain />
+  <router-view />
 </template>
 
 <script setup>
-import WorkspaceMain from './views/WorkspaceMain.vue'
 </script>
 
 <style>
-/* 全局样式重置 - 保留原有设计系统 */
+/* ============================================================
+   ResearchOS V2 — Global Base & Scrollbar Styling
+   ============================================================ */
 :root {
-  --primary: #F3A04C;
-  --accent: #E58522;
-  --background: #F4F4F6;
-  --panel-bg: #FEFDFC;
-  --card-bg: #fff;
-  --bg-primary: #F4F4F6;
-  --bg-secondary: rgba(0,0,0,.04);
-  --bg-tertiary: rgba(0,0,0,.06);
-  --border-primary: rgba(0,0,0,.12);
-  --border-secondary: rgba(0,0,0,.08);
-  --text-primary: rgba(0,0,0,.8);
-  --text-secondary: rgba(0,0,0,.5);
-  --text-tertiary: rgba(0,0,0,.35);
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --font-mono: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  --bg-canvas: #0B0D10;
+  --bg-surface-1: #11141A;
+  --bg-surface-2: #161B22;
+  --bg-hover: #1C222D;
+
+  --border-default: #212631;
+  --border-active: #384152;
+
+  --text-primary: #F0F3F8;
+  --text-secondary: #8B949E;
+  --text-muted: #525A66;
+
+  --accent-science: #388BFD;
+  --accent-science-dim: rgba(56, 139, 253, 0.12);
+  --accent-success: #3FB950;
+  --accent-success-dim: rgba(63, 185, 80, 0.12);
+  --accent-warning: #D29922;
+  --accent-warning-dim: rgba(210, 153, 34, 0.12);
+  --accent-danger: #F85149;
+  --accent-danger-dim: rgba(248, 81, 73, 0.12);
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #232324;
-    --panel-bg: #332D28;
-    --card-bg: #2E2E2E;
-    --bg-primary: #232324;
-    --bg-secondary: rgba(255,255,255,.06);
-    --bg-tertiary: rgba(255,255,255,.1);
-    --border-primary: rgba(255,255,255,.15);
-    --border-secondary: rgba(255,255,255,.1);
-    --text-primary: rgba(255,255,255,.8);
-    --text-secondary: rgba(255,255,255,.5);
-    --text-tertiary: rgba(255,255,255,.35);
-  }
+[data-theme="light"] {
+  --bg-canvas: #F7F8FA;
+  --bg-surface-1: #FFFFFF;
+  --bg-surface-2: #F3F4F6;
+  --bg-hover: #EAECF0;
+
+  --border-default: #E4E7EC;
+  --border-active: #C8CDD5;
+
+  --text-primary: #101828;
+  --text-secondary: #667085;
+  --text-muted: #98A2B3;
+
+  --accent-science: #2563EB;
+  --accent-science-dim: rgba(37, 99, 235, 0.08);
+  --accent-success: #16A34A;
+  --accent-success-dim: rgba(22, 163, 74, 0.08);
+  --accent-warning: #B7791F;
+  --accent-warning-dim: rgba(183, 121, 31, 0.08);
+  --accent-danger: #DC2626;
+  --accent-danger-dim: rgba(220, 38, 38, 0.08);
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
 }
 
 html, body {
   height: 100%;
+  width: 100%;
   overflow: hidden;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 #app {
   height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* 全局极简暗色/浅色自适应滚动条 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-active);
 }
 </style>

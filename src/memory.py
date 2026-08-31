@@ -124,6 +124,7 @@ class _SQLiteStore:
         self._create_tables()
 
     def _create_tables(self):
+        # 先建表（幂等，旧库已存在时 CREATE TABLE 为 no-op）
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
@@ -140,16 +141,21 @@ class _SQLiteStore:
                 metadata TEXT NOT NULL DEFAULT '{}',
                 FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
-            CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
-            CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions(tenant_id);
         """)
-        # 迁移：旧库可能没有 tenant_id 列，安全补列
+        # 迁移：旧库可能没有 tenant_id 列，必须在建索引前补列，否则
+        # CREATE INDEX ... ON sessions(tenant_id) 会因列不存在而失败、
+        # 导致后续迁移永远不执行。
         try:
             self._conn.execute(
                 "ALTER TABLE sessions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''"
             )
         except Exception:
             pass
+        # 建索引（此时 tenant_id 已确保存在）
+        self._conn.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions(tenant_id);
+        """)
         self._conn.commit()
 
     def save_session(self, session_id: str, created_at: float, last_active: float, tenant_id: str = ""):
