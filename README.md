@@ -3,11 +3,15 @@
 > **AI-Native Local-First 个人科研操作系统与实验智能体工作台**  
 > *从文献研读、证据沉淀、假说建立，到数据分析、实验编程、运行调试与结论推演的全闭环科研平台。*
 
+[**中文文档**](README.md) | [**English Documentation**](README_EN.md)
+
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D?logo=vuedotjs)](https://vuejs.org/)
 [![DuckDB](https://img.shields.io/badge/DuckDB-Local%20Analytics-FFF000?logo=duckdb)](https://duckdb.org/)
 [![RestrictedPython](https://img.shields.io/badge/RestrictedPython-Safe%20Sandbox-green)](https://restrictedpython.readthedocs.io/)
+[![Status](https://img.shields.io/badge/Status-V2.6.0%20Stable-brightgreen)](docs/RELEASE_NOTES_V2.6.md)
+[![Tests](https://img.shields.io/badge/Tests-61%2F61%20PASS-success)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 ---
