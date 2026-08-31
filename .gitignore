@@ -63,6 +63,12 @@ logs/
 *.duckdb
 chroma-embeddings.parquet
 
+# ===== 脚本与临时任务文档 =====
+*.bat
+DEPLOY.md
+Experiment_Agent_V2_ResearchOS_架构改造方案.md
+ResearchOS V2.3 — 真实科研闭环穿透验收与产品化收敛任务书.md
+
 # ===== 测试与临时文件 =====
 test_upload.txt
 report.json
