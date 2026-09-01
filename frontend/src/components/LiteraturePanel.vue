@@ -5,13 +5,16 @@
       <p class="lit-desc">{{ lang === 'en-US' ? 'Search OpenAlex & Semantic Scholar academic papers, extract hypotheses, and link as evidence.' : '检索 OpenAlex 与 Semantic Scholar 学术论文，自动提取前沿假说并关联为实验证据链条。' }}</p>
     </div>
 
-    <!-- 顶部选项卡：检索 / 已保存文献 -->
-    <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+    <!-- 顶部选项卡：检索 / 已保存文献 / 直接导入 -->
+    <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
       <button class="btn-secondary" :class="{ 'btn-action-primary': litTab === 'search' }" @click="litTab = 'search'">
         <i class="fa-solid fa-magnifying-glass"></i> {{ lang === 'en-US' ? 'Search Papers' : '在线检索学术文献' }}
       </button>
       <button class="btn-secondary" :class="{ 'btn-action-primary': litTab === 'saved' }" @click="litTab = 'saved'; loadSavedPapers()">
         <i class="fa-solid fa-bookmark"></i> {{ lang === 'en-US' ? 'Saved Papers' : '课题保存的文献' }} ({{ savedPapers.length }})
+      </button>
+      <button class="btn-secondary" :class="{ 'btn-action-primary': litTab === 'import' }" @click="litTab = 'import'">
+        <i class="fa-solid fa-file-code"></i> {{ lang === 'en-US' ? 'Direct Import (DOI / BibTeX)' : '📋 DOI / BibTeX 一键导入' }}
       </button>
     </div>
 
@@ -25,9 +28,12 @@
           @keyup.enter="search"
         />
         <select v-model="source" class="source-select">
-          <option value="openalex">OpenAlex</option>
-          <option value="arxiv">arXiv</option>
-          <option value="semantic_scholar">Semantic Scholar</option>
+          <option value="openalex">🌍 OpenAlex (全球开放获取)</option>
+          <option value="arxiv">📄 arXiv (预印本)</option>
+          <option value="semantic_scholar">🔬 Semantic Scholar (AI 引用)</option>
+          <option value="pubmed">🧬 PubMed (生物医药与生信)</option>
+          <option value="dblp">💻 DBLP (计算机与 AI 会议)</option>
+          <option value="crossref">🆔 CrossRef (全球 DOI 检索)</option>
         </select>
         <button class="btn-search" :disabled="!query.trim() || loading" @click="search">
           {{ loading ? (lang === 'en-US' ? 'Searching...' : '检索中...') : (lang === 'en-US' ? 'Search' : '检索文献') }}
@@ -189,6 +195,55 @@
         </div>
       </div>
     </div>
+
+    <!-- 3. DOI / BibTeX 直接导入区 -->
+    <div v-if="litTab === 'import'" class="card" style="padding: 20px; background: var(--bg-surface-1); border: 1px solid var(--border-default); border-radius: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div>
+          <h4 style="margin: 0; font-size: 14px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-bolt" style="color: var(--accent-science);"></i>
+            <span>{{ lang === 'en-US' ? 'Direct BibTeX / DOI Code Ingestion' : 'DOI / BibTeX 文本免爬虫直入' }}</span>
+          </h4>
+          <p style="margin: 4px 0 0; font-size: 12px; color: var(--text-secondary);">
+            {{ lang === 'en-US' ? 'Paste raw BibTeX citations from Google Scholar, IEEE, CNKI or DOI numbers. Zero anti-scraping risk.' : '支持从 Google Scholar、知网、IEEE、DBLP 等直接复制 BibTeX 代码或 DOI 字符串，秒级完成元数据沉淀与关联。' }}
+          </p>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn-secondary" style="font-size: 11px;" @click="fillSampleBibtex">
+            {{ lang === 'en-US' ? 'Example BibTeX' : '填入示例 BibTeX' }}
+          </button>
+          <button class="btn-secondary" style="font-size: 11px;" @click="fillSampleDoi">
+            {{ lang === 'en-US' ? 'Example DOI' : '填入示例 DOI' }}
+          </button>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <textarea
+          v-model="directImportText"
+          :placeholder="lang === 'en-US' ? 'Paste @article{...} or 10.1145/3305367 here...' : '在此粘贴 BibTeX 引用代码（例如 @inproceedings{...}）或 DOI 编号（例如 10.1145/3305367）...'"
+          rows="8"
+          class="modal-textarea"
+          style="font-family: var(--font-mono, monospace); font-size: 12px; width: 100%; box-sizing: border-box; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px; padding: 10px;"
+        ></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span class="text-muted" style="font-size: 11px;">
+          <i class="fa-solid fa-shield-halved" style="color: var(--accent-success); margin-right: 4px;"></i>
+          {{ lang === 'en-US' ? 'Safe parsing mode: Uses CrossRef API and local AST parser.' : '安全解析模式：自动调用 CrossRef 权威解析与本地 AST 语法树无损提取。' }}
+        </span>
+        <button
+          class="btn-action-primary"
+          :disabled="!directImportText.trim() || directImporting"
+          @click="handleDirectImport"
+          style="padding: 8px 18px; font-size: 12px;"
+        >
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <span>{{ directImporting ? (lang === 'en-US' ? 'Importing...' : '正在入库...') : (lang === 'en-US' ? 'Import & Save to Project' : '立即解析并沉淀至课题') }}</span>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -217,12 +272,52 @@ export default {
       qaQuestion: '',
       qaLoading: false,
       qaAnswer: null,
+      directImportText: '',
+      directImporting: false,
     }
   },
   mounted() {
     this.loadSavedPapers()
   },
   methods: {
+    fillSampleBibtex() {
+      this.directImportText = `@inproceedings{wang2019dynamic,
+  title={Dynamic Graph CNN for Learning on Point Clouds},
+  author={Wang, Yue and Sun, Yongbin and Liu, Ziwei and Sarikonda, Sanjay E and Bronstein, Michael M and Solomon, Justin M},
+  booktitle={ACM Transactions on Graphics (TOG)},
+  year={2019},
+  doi={10.1145/3326362}
+}`
+    },
+    fillSampleDoi() {
+      this.directImportText = `10.1145/3326362, 10.1038/s41586-020-2649-2`
+    },
+    async handleDirectImport() {
+      if (!this.directImportText.trim()) return
+      this.directImporting = true
+      try {
+        const resp = await fetch(`/api/projects/${this.projectId}/papers/import-direct`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw_text: this.directImportText }),
+        })
+        if (resp.ok) {
+          const res = await resp.json()
+          alert(this.lang === 'en-US' ? `Successfully imported ${res.saved_count} paper(s)!` : `成功解析并入库 ${res.saved_count} 篇学术文献！`)
+          this.directImportText = ''
+          this.litTab = 'saved'
+          await this.loadSavedPapers()
+          this.$emit('refresh')
+        } else {
+          const err = await resp.json().catch(() => ({}))
+          alert('解析导入失败: ' + (err.detail || '未知错误'))
+        }
+      } catch (e) {
+        alert('导入请求出错: ' + e.message)
+      } finally {
+        this.directImporting = false
+      }
+    },
     async loadSavedPapers() {
       try {
         const resp = await fetch(`/api/projects/${this.projectId}/papers`)

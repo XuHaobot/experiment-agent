@@ -8,11 +8,18 @@ from backend.integrations.literature.base import LiteratureProvider, Paper
 from backend.integrations.literature.openalex import OpenAlexProvider
 from backend.integrations.literature.arxiv import ArxivProvider
 from backend.integrations.literature.semantic_scholar import SemanticScholarProvider
+from backend.integrations.literature.pubmed import PubMedProvider
+from backend.integrations.literature.dblp import DBLPProvider
+from backend.integrations.literature.crossref import CrossRefProvider
+from backend.integrations.literature.bibtex_parser import parse_bibtex
 
 _PROVIDERS: Dict[str, LiteratureProvider] = {
     "openalex": OpenAlexProvider(),
     "arxiv": ArxivProvider(),
     "semantic_scholar": SemanticScholarProvider(),
+    "pubmed": PubMedProvider(),
+    "dblp": DBLPProvider(),
+    "crossref": CrossRefProvider(),
 }
 
 

@@ -1927,6 +1927,51 @@ def list_project_papers_route(project_id: str):
     return {"project_id": project_id, "papers": papers, "total": len(papers)}
 
 
+@app.post("/api/projects/{project_id}/papers/import-direct")
+def import_direct_paper_route(project_id: str, body: dict):
+    """直接导入 BibTeX 文本代码或 DOI，免爬虫秒级入库"""
+    from backend.domain.paper import save_paper_to_project
+    from backend.integrations.literature.bibtex_parser import parse_bibtex
+    from backend.integrations.literature.crossref import CrossRefProvider
+    
+    raw_text = (body.get("raw_text") or "").strip()
+    if not raw_text:
+        raise HTTPException(status_code=400, detail="请输入 BibTeX 文本或 DOI")
+
+    saved_list = []
+    # 1. 尝试作为 BibTeX 解析
+    if "@" in raw_text and "{" in raw_text:
+        parsed_papers = parse_bibtex(raw_text)
+        for p in parsed_papers:
+            saved = save_paper_to_project(project_id, p.to_dict())
+            saved_list.append(saved)
+    else:
+        # 2. 尝试作为 DOI 或 DOI 列表解析
+        doi_candidates = [d.strip() for d in raw_text.replace("\n", ",").split(",") if d.strip()]
+        cr = CrossRefProvider()
+        for cand in doi_candidates:
+            clean_doi = cand.replace("https://doi.org/", "").replace("http://doi.org/", "").strip()
+            p = cr.get_paper(clean_doi)
+            if p:
+                saved = save_paper_to_project(project_id, p.to_dict())
+                saved_list.append(saved)
+            else:
+                # 兜底构造 DOI 实体
+                fallback_paper = {
+                    "paper_id": f"doi:{clean_doi}",
+                    "title": f"DOI: {clean_doi}",
+                    "authors": [],
+                    "abstract": f"Directly imported DOI {clean_doi}",
+                    "doi": clean_doi,
+                    "url": f"https://doi.org/{clean_doi}",
+                    "source": "doi_import",
+                }
+                saved = save_paper_to_project(project_id, fallback_paper)
+                saved_list.append(saved)
+
+    return {"ok": True, "saved_count": len(saved_list), "papers": saved_list}
+
+
 @app.delete("/api/projects/{project_id}/papers/{paper_id}")
 def delete_project_paper_route(project_id: str, paper_id: str):
     """从 Project 移除文献"""
