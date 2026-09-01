@@ -1860,6 +1860,9 @@ export default {
         })
         if (resp.ok) {
           this.envInspectionResult = await resp.json()
+        } else {
+          const err = await resp.json().catch(() => ({}))
+          this.envInspectionResult = { valid: false, error: err.detail || `自检请求失败 (HTTP ${resp.status})` }
         }
       } catch (e) {
         this.envInspectionResult = { valid: false, error: e.message }

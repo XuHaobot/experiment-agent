@@ -138,6 +138,7 @@ class EnvironmentManager:
         self,
         python_executable: str,
         working_dir: Optional[str] = None,
+        working_directory: Optional[str] = None,
     ) -> dict[str, Any]:
         """深度自检指定 Python 环境的详细版本、已安装包与 GPU/CUDA 支持"""
         exe_path = Path(python_executable)
@@ -147,10 +148,11 @@ class EnvironmentManager:
                 "error": f"指定的 Python 解释器不存在: {python_executable}",
             }
 
-        target_cwd = working_dir if (working_dir and Path(working_dir).exists()) else str(PROJECT_ROOT)
+        effective_dir = working_directory or working_dir
+        target_cwd = effective_dir if (effective_dir and Path(effective_dir).exists()) else str(PROJECT_ROOT)
 
         probe_code = """
-import sys, json
+import sys, json, importlib.metadata
 
 info = {
     "version": sys.version.split()[0],
@@ -159,41 +161,32 @@ info = {
     "cuda": {"available": False, "device_count": 0, "device_name": None}
 }
 
-# 探测常见科研库
+# 快速元数据探测科学计算依赖（毫秒级，无需加载 C 扩展模块）
 packages_to_check = [
-    ("numpy", "numpy"),
-    ("pandas", "pandas"),
-    ("scipy", "scipy"),
-    ("matplotlib", "matplotlib"),
-    ("duckdb", "duckdb"),
-    ("scikit-learn", "sklearn"),
-    ("torch", "torch"),
-    ("torchvision", "torchvision"),
-    ("tensorflow", "tensorflow"),
-    ("transformers", "transformers"),
-    ("seaborn", "seaborn"),
-    ("pypdf", "pypdf")
+    "numpy", "pandas", "scipy", "matplotlib", "duckdb", "scikit-learn",
+    "torch", "torchvision", "tensorflow", "transformers", "seaborn", "pypdf"
 ]
 
-for disp_name, mod_name in packages_to_check:
+for pkg in packages_to_check:
     try:
-        mod = __import__(mod_name)
-        ver = getattr(mod, "__version__", "installed")
-        info["packages"][disp_name] = {"installed": True, "version": str(ver)}
-    except ImportError:
-        info["packages"][disp_name] = {"installed": False, "install_cmd": f"pip install {disp_name}"}
+        ver = importlib.metadata.version(pkg)
+        info["packages"][pkg] = {"installed": True, "version": ver}
+    except Exception:
+        info["packages"][pkg] = {"installed": False, "install_cmd": f"pip install {pkg}"}
 
-try:
-    import torch
-    if torch.cuda.is_available():
-        info["cuda"] = {
-            "available": True,
-            "device_count": torch.cuda.device_count(),
-            "device_name": torch.cuda.get_device_name(0),
-            "version": torch.version.cuda
-        }
-except Exception:
-    pass
+# 若安装了 PyTorch，尝试探测 GPU CUDA 支持
+if info["packages"].get("torch", {}).get("installed"):
+    try:
+        import torch
+        if torch.cuda.is_available():
+            info["cuda"] = {
+                "available": True,
+                "device_count": torch.cuda.device_count(),
+                "device_name": torch.cuda.get_device_name(0),
+                "version": getattr(torch.version, "cuda", "N/A")
+            }
+    except Exception:
+        pass
 
 print("___JSON_START___" + json.dumps(info) + "___JSON_END___")
 """
@@ -204,7 +197,7 @@ print("___JSON_START___" + json.dumps(info) + "___JSON_END___")
                 cwd=target_cwd,
                 capture_output=True,
                 text=True,
-                timeout=6,
+                timeout=15,
             )
             stdout = res.stdout
             if "___JSON_START___" in stdout:
@@ -219,7 +212,7 @@ print("___JSON_START___" + json.dumps(info) + "___JSON_END___")
                     "error": f"自检输出解析失败: {res.stderr or stdout}",
                 }
         except subprocess.TimeoutExpired:
-            return {"valid": False, "error": "自检环境超时 (6s)"}
+            return {"valid": False, "error": "自检环境超时 (15s)"}
         except Exception as e:
             return {"valid": False, "error": str(e)}
 
