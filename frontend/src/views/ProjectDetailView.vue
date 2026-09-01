@@ -613,46 +613,83 @@
         <div v-if="activeTab === 'runs'" class="workspace-view">
           <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
             <div>
-              <h2 style="font-size: 18px; font-weight: 600; color: var(--text-primary);">
-                {{ t('run.title') }}
+              <h2 style="font-size: 18px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;">
+                {{ lang === 'en-US' ? 'Execution Runs & Live Telemetry' : '实验物理运行记录与实时遥测' }}
               </h2>
+              <p class="text-secondary" style="font-size: 12px; margin: 0;">
+                {{ lang === 'en-US' ? 'Real-time telemetry, GPU metrics, and validation curves for physical execution runs.' : '展示真实环境调度的实验 Run 实例指标、参数快照与收敛表现。' }}
+              </p>
             </div>
-            <span class="badge-status badge-support">COMPLETED</span>
+            <button v-if="allProjectRuns.length" class="btn-action-primary" style="font-size: 11px;" @click="openNewExperimentModal">
+              + {{ t('newExperiment') }}
+            </button>
           </div>
 
-          <div class="run-metric-grid">
-            <div class="run-metric-card">
-              <div class="metric-label">{{ t('run.valAccuracy') }}</div>
-              <div class="run-metric-val" style="color: var(--accent-success);">83.2%</div>
+          <!-- 空状态 -->
+          <div v-if="!allProjectRuns.length" class="card" style="padding: 60px 20px; text-align: center; background: var(--bg-surface-1); border: 1px solid var(--border-default); border-radius: 12px;">
+            <i class="fa-solid fa-terminal" style="font-size: 36px; color: var(--text-muted); margin-bottom: 14px;"></i>
+            <div style="font-weight: 700; font-size: 14px; color: var(--text-primary); margin-bottom: 6px;">
+              {{ lang === 'en-US' ? 'No Execution Runs Recorded Yet' : '当前课题暂无运行记录 (Runs)' }}
             </div>
-            <div class="run-metric-card">
-              <div class="metric-label">{{ t('run.f1Score') }}</div>
-              <div class="run-metric-val">81.7%</div>
+            <div style="font-size: 12px; color: var(--text-secondary); max-width: 480px; margin: 0 auto 20px; line-height: 1.6;">
+              {{ lang === 'en-US' ? 'No experimental runs have been executed yet. Go to "Experiments" to design protocols, generate Python code, and dispatch runs.' : '尚未调度任何物理实验运行实例。请先在「实验方案」中创建方案或编写代码并调度执行。' }}
             </div>
-            <div class="run-metric-card">
-              <div class="metric-label">{{ t('run.finalLoss') }}</div>
-              <div class="run-metric-val">0.241</div>
-            </div>
-            <div class="run-metric-card">
-              <div class="metric-label">{{ t('run.gpuMemory') }}</div>
-              <div class="run-metric-val">7.4 GB</div>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+              <button class="btn-secondary" style="font-size: 12px; padding: 6px 14px;" @click="activeTab = 'experiments'">
+                <i class="fa-solid fa-flask"></i> {{ lang === 'en-US' ? 'View Experiments' : '查看实验方案' }}
+              </button>
+              <button class="btn-action-primary" style="font-size: 12px; padding: 6px 14px;" @click="openNewExperimentModal">
+                <i class="fa-solid fa-plus"></i> {{ lang === 'en-US' ? 'New Experiment' : '新建实验方案' }}
+              </button>
             </div>
           </div>
 
-          <div class="card" style="margin-bottom: 20px;">
-            <div class="card-header">
-              <span class="card-title-sm">{{ t('run.convergence') }}</span>
-              <span class="font-mono text-muted" style="font-size: 11px;">{{ t('run.epochs') }}</span>
+          <!-- 真实 Runs 遥测看板 -->
+          <div v-else style="display: flex; flex-direction: column; gap: 16px;">
+            <div v-if="latestCompletedRun && latestCompletedRun.metrics" class="run-metric-grid">
+              <div class="run-metric-card">
+                <div class="metric-label">{{ t('run.valAccuracy') }}</div>
+                <div class="run-metric-val" style="color: var(--accent-success);">
+                  {{ latestCompletedRun.metrics.val_accuracy !== undefined ? (latestCompletedRun.metrics.val_accuracy * 100).toFixed(1) + '%' : (latestCompletedRun.metrics.accuracy !== undefined ? (latestCompletedRun.metrics.accuracy * 100).toFixed(1) + '%' : 'N/A') }}
+                </div>
+              </div>
+              <div class="run-metric-card">
+                <div class="metric-label">{{ t('run.f1Score') }}</div>
+                <div class="run-metric-val">
+                  {{ latestCompletedRun.metrics.f1_score !== undefined ? (latestCompletedRun.metrics.f1_score * 100).toFixed(1) + '%' : 'N/A' }}
+                </div>
+              </div>
+              <div class="run-metric-card">
+                <div class="metric-label">{{ t('run.finalLoss') }}</div>
+                <div class="run-metric-val">
+                  {{ latestCompletedRun.metrics.final_loss ?? latestCompletedRun.metrics.loss ?? 'N/A' }}
+                </div>
+              </div>
+              <div class="run-metric-card">
+                <div class="metric-label">{{ t('run.gpuMemory') }}</div>
+                <div class="run-metric-val">{{ latestCompletedRun.metrics.gpu_memory ?? 'CPU' }}</div>
+              </div>
             </div>
-            <div style="width: 100%; height: 200px; display: flex; align-items: flex-end; gap: 4px; padding-top: 20px;">
-              <svg width="100%" height="100%" viewBox="0 0 500 150" preserveAspectRatio="none">
-                <path d="M0,140 Q100,80 200,40 T400,25 T500,20" fill="none" stroke="var(--accent-science)" stroke-width="2" />
-                <path d="M0,130 Q100,100 200,60 T400,35 T500,25" fill="none" stroke="var(--accent-success)" stroke-width="2" stroke-dasharray="4" />
-              </svg>
-            </div>
-            <div style="display: flex; justify-content: center; gap: 20px; font-size: 11px; color: var(--text-secondary); margin-top: 10px;">
-              <span><strong style="color: var(--accent-science);">—</strong> {{ t('run.trainingLoss') }}</span>
-              <span><strong style="color: var(--accent-success);">--</strong> {{ t('run.valAccCurve') }}</span>
+
+            <!-- Runs 列表明细 -->
+            <div class="card" style="padding: 16px; background: var(--bg-surface-1); border: 1px solid var(--border-default); border-radius: 10px;">
+              <div class="card-title-sm" style="margin-bottom: 12px;">已调度的历史执行实例 (All Runs)</div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div v-for="r in allProjectRuns" :key="r.id" class="evidence-item" style="cursor: default;">
+                  <div class="evidence-item-left">
+                    <span class="font-mono text-primary" style="font-weight: 600;">{{ r.id }}</span>
+                    <span class="badge-status" :class="r.status === 'completed' ? 'badge-support' : (r.status === 'running' ? 'badge-moderate' : 'badge-contradict')">
+                      {{ (r.status || 'pending').toUpperCase() }}
+                    </span>
+                    <span class="font-mono text-muted" style="font-size: 11px;">{{ JSON.stringify(r.actual_parameters || {}).slice(0, 70) }}</span>
+                  </div>
+                  <div>
+                    <button class="btn-secondary" style="font-size: 11px; padding: 3px 10px;" @click="executeRun(r)">
+                      {{ r.status === 'completed' ? (lang === 'en-US' ? 'Re-dispatch' : '重新调度') : (lang === 'en-US' ? '▶ Execute Run' : '▶ 执行 Run') }}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1084,34 +1121,30 @@
         <div class="provenance-box">
           <div class="provenance-row">
             <span class="provenance-key">{{ t('drawer.strength') }}</span>
-            <span class="provenance-val" style="color: var(--accent-warning);">{{ t('hypothesis.moderate') }}</span>
+            <span class="provenance-val" style="color: var(--accent-warning);">{{ evidenceDrawer.confidence || t('hypothesis.moderate') }}</span>
           </div>
           <div class="provenance-row">
             <span class="provenance-key">{{ t('drawer.source') }}</span>
-            <span class="provenance-val">{{ evidenceDrawer.sourceRef }}</span>
+            <span class="provenance-val font-mono">{{ evidenceDrawer.sourceRef }}</span>
           </div>
-          <div class="provenance-row">
+          <div v-if="evidenceDrawer.accuracy" class="provenance-row">
             <span class="provenance-key">{{ t('drawer.accuracy') }}</span>
-            <span class="provenance-val" style="color: var(--accent-success);">83.2%</span>
+            <span class="provenance-val font-mono" style="color: var(--accent-success);">{{ evidenceDrawer.accuracy }}</span>
           </div>
-          <div class="provenance-row">
+          <div v-if="evidenceDrawer.macroF1" class="provenance-row">
             <span class="provenance-key">{{ t('drawer.macroF1') }}</span>
-            <span class="provenance-val">81.7%</span>
+            <span class="provenance-val font-mono">{{ evidenceDrawer.macroF1 }}</span>
           </div>
         </div>
 
-        <div class="provenance-box">
-          <div class="provenance-row">
+        <div v-if="evidenceDrawer.dataset || evidenceDrawer.gitCommit" class="provenance-box">
+          <div v-if="evidenceDrawer.dataset" class="provenance-row">
             <span class="provenance-key">{{ t('drawer.dataset') }}</span>
-            <span class="provenance-val">FER_Noisy_v2</span>
+            <span class="provenance-val font-mono">{{ evidenceDrawer.dataset }}</span>
           </div>
-          <div class="provenance-row">
+          <div v-if="evidenceDrawer.gitCommit" class="provenance-row">
             <span class="provenance-key">{{ t('drawer.gitCommit') }}</span>
-            <span class="provenance-val">a7f8c2b</span>
-          </div>
-          <div class="provenance-row">
-            <span class="provenance-key">{{ t('drawer.checkpoint') }}</span>
-            <span class="provenance-val">best_k20.pt</span>
+            <span class="provenance-val font-mono">{{ evidenceDrawer.gitCommit }}</span>
           </div>
         </div>
 
@@ -1686,6 +1719,16 @@ export default {
         }
       }
       return nodes
+    },
+    allProjectRuns() {
+      const runs = []
+      for (const eid in this.expRunsMap) {
+        runs.push(...(this.expRunsMap[eid] || []))
+      }
+      return runs
+    },
+    latestCompletedRun() {
+      return this.allProjectRuns.find(r => r.status === 'completed' && r.metrics) || this.allProjectRuns[0] || null
     },
     displayedChatMessages() {
       if (this.chatMessages.length === 0) {
