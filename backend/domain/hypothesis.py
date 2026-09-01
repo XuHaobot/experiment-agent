@@ -57,12 +57,14 @@ def create_hypothesis(
     title: str,
     description: str = "",
     question_id: Optional[str] = None,
+    source_paper_id: Optional[str] = None,
 ) -> dict:
     """新建 Hypothesis，返回 hypothesis dict。"""
     hyp = {
         "id": f"hyp_{uuid.uuid4().hex[:10]}",
         "project_id": project_id,
         "question_id": question_id,
+        "source_paper_id": source_paper_id,
         "title": title.strip(),
         "description": description.strip(),
         "status": "pending",

@@ -1974,6 +1974,89 @@ def delete_project_paper_route(project_id: str, paper_id: str):
     return {"ok": ok}
 
 
+@app.post("/api/projects/{project_id}/papers/upload")
+def upload_project_paper_route(project_id: str, body: dict):
+    """上传本地 PDF/TXT/MD 论文并提取全文内容"""
+    import base64
+    from backend.domain.paper import save_paper_to_project
+    from backend.domain.paper_reader import extract_text_from_file
+
+    filename = body.get("filename", "uploaded_paper.pdf")
+    content_b64 = body.get("content_base64", "")
+    raw_text = body.get("text", "")
+
+    if content_b64:
+        file_bytes = base64.b64decode(content_b64)
+        extracted_text, meta = extract_text_from_file(file_bytes, filename)
+    elif raw_text:
+        extracted_text = raw_text
+        meta = {"filename": filename, "page_count": 1}
+    else:
+        raise HTTPException(status_code=400, detail="未提供文件内容")
+
+    paper_id = f"local_{uuid.uuid4().hex[:10]}"
+    title = meta.get("pdf_title") or Path(filename).stem.replace("_", " ").title()
+    authors = [meta.get("pdf_author")] if meta.get("pdf_author") else ["Local Upload"]
+
+    paper_data = {
+        "paper_id": paper_id,
+        "title": title,
+        "authors": authors,
+        "abstract": extracted_text[:1200] if len(extracted_text) > 1200 else extracted_text,
+        "full_text": extracted_text,
+        "url": "",
+        "source": "local_upload",
+        "metadata": meta,
+    }
+    saved = save_paper_to_project(project_id, paper_data)
+    return {"ok": True, "paper": saved}
+
+
+@app.post("/api/projects/{project_id}/papers/{paper_id}/analyze")
+def analyze_project_paper_route(project_id: str, paper_id: str, body: dict = None):
+    """触发 AI 自动化深度研读与假说提炼"""
+    from backend.domain.paper import get_paper, update_project_paper
+    from backend.domain.paper_reader import read_and_analyze_paper
+
+    paper = get_paper(paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="文献不存在")
+
+    text_to_analyze = paper.get("full_text") or paper.get("abstract") or paper.get("title", "")
+    res = read_and_analyze_paper(
+        paper_text=text_to_analyze,
+        title=paper.get("title", ""),
+        authors=paper.get("authors", []),
+    )
+
+    if res.get("success"):
+        # 更新文献实体中的研读报告
+        update_project_paper(project_id, paper_id, {"reading_analysis": res["analysis"]})
+
+    return res
+
+
+@app.post("/api/projects/{project_id}/papers/{paper_id}/adopt-hypothesis")
+def adopt_paper_hypothesis_route(project_id: str, paper_id: str, body: dict = None):
+    """将文献研读提炼出的候选假说一键转化为课题假说"""
+    from backend.domain.hypothesis import create_hypothesis
+
+    hyp = (body or {}).get("hypothesis", body or {})
+    title = hyp.get("title") or "从文献提炼的假说"
+    desc = hyp.get("statement") or hyp.get("description") or ""
+    rationale = hyp.get("rationale", "")
+    suggested_exp = hyp.get("suggested_experiment", "")
+
+    full_desc = f"{desc}\n\n依据: {rationale}\n建议实验: {suggested_exp}"
+    created = create_hypothesis(
+        project_id=project_id,
+        title=title,
+        description=full_desc,
+        source_paper_id=paper_id,
+    )
+    return {"ok": True, "hypothesis": created}
+
+
 # =============================================================================
 # Open Research Stack APIs — Data & DuckDB
 # =============================================================================

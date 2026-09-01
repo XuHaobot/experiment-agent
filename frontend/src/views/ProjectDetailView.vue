@@ -718,48 +718,47 @@
         <div v-if="activeTab === 'graph'" class="workspace-view">
           <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
             <div>
-              <h2 style="font-size: 18px; font-weight: 600; color: var(--text-primary);">{{ t('graph.title') }}</h2>
-              <p class="text-secondary" style="font-size: 12px;">{{ t('graph.subtitle') }}</p>
+              <h2 style="font-size: 18px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;">{{ t('graph.title') }}</h2>
+              <p class="text-secondary" style="font-size: 12px; margin: 0;">{{ t('graph.subtitle') }}</p>
             </div>
-            <button class="btn-secondary" @click="resetGraphFocus">{{ t('graph.reset') }}</button>
+            <button v-if="graphNodesList.length" class="btn-secondary" @click="resetGraphFocus">{{ t('graph.reset') }}</button>
           </div>
 
-          <div class="graph-container">
-            <svg width="100%" height="100%" id="research-svg">
-              <path id="e1" class="edge" :class="{ dimmed: isEdgeDimmed('e1') }" d="M260,80 L260,140" />
-              <path id="e2" class="edge edge-contradict" :class="{ dimmed: isEdgeDimmed('e2') }" d="M220,190 L120,260" />
-              <path id="e3" class="edge edge-support" :class="{ dimmed: isEdgeDimmed('e3') }" d="M280,190 L380,260" />
-              <path id="e4" class="edge edge-support" :class="{ dimmed: isEdgeDimmed('e4') }" d="M380,310 L380,380" />
+          <!-- 空状态 -->
+          <div v-if="!graphNodesList.length" class="card" style="padding: 60px 20px; text-align: center; background: var(--bg-surface-1); border: 1px solid var(--border-default); border-radius: 12px;">
+            <i class="fa-solid fa-diagram-project" style="font-size: 36px; color: var(--text-muted); margin-bottom: 14px;"></i>
+            <div style="font-weight: 700; font-size: 14px; color: var(--text-primary); margin-bottom: 6px;">
+              {{ lang === 'en-US' ? 'No Inference Graph Nodes in this Project' : '当前课题暂无科学推理图谱节点' }}
+            </div>
+            <div style="font-size: 12px; color: var(--text-secondary); max-width: 480px; margin: 0 auto 20px; line-height: 1.6;">
+              {{ lang === 'en-US' ? 'As you propose hypotheses, execute experimental runs, and generate empirical conclusions, the system automatically builds causal reasoning chains.' : '随着您在课题中提出假说、调度实验 Run 以及沉淀结论，系统将自动构建因果推理拓扑图与证据支撑链条。' }}
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+              <button class="btn-secondary" style="font-size: 12px; padding: 6px 14px;" @click="activeTab = 'hypotheses'">
+                <i class="fa-solid fa-lightbulb"></i> {{ lang === 'en-US' ? 'Propose Hypothesis' : '提出科学假说' }}
+              </button>
+              <button class="btn-action-primary" style="font-size: 12px; padding: 6px 14px;" @click="openNewExperimentModal">
+                <i class="fa-solid fa-plus"></i> {{ lang === 'en-US' ? 'New Experiment' : '新建实验方案' }}
+              </button>
+            </div>
+          </div>
 
-              <g class="node" id="node-rq" :class="{ dimmed: isNodeDimmed('node-rq'), highlighted: focusedNode === 'h2' }" @click="focusGraphNode('rq')">
-                <rect x="150" y="30" width="220" height="50" />
-                <text x="165" y="52">{{ t('graph.rqNode') }}</text>
-                <text x="165" y="66" class="node-subtext">{{ t('graph.rqSub') }}</text>
-              </g>
-
-              <g class="node" id="node-h2" :class="{ dimmed: isNodeDimmed('node-h2'), highlighted: focusedNode === 'h2' }" @click="focusGraphNode('h2')">
-                <rect x="160" y="140" width="200" height="50" />
-                <text x="175" y="162" style="fill: var(--accent-science); font-weight: 600;">{{ t('graph.h2Node') }}</text>
-                <text x="175" y="176" class="node-subtext">{{ t('graph.h2Sub') }}</text>
-              </g>
-
-              <g class="node" id="node-r1" :class="{ dimmed: isNodeDimmed('node-r1') }" @click="focusGraphNode('r1')">
-                <rect x="30" y="260" width="180" height="50" />
-                <text x="45" y="282">{{ t('graph.r1Node') }}</text>
-                <text x="45" y="296" class="node-subtext" style="fill: var(--accent-danger);">{{ t('graph.r1Sub') }}</text>
-              </g>
-
-              <g class="node" id="node-r3" :class="{ dimmed: isNodeDimmed('node-r3'), highlighted: focusedNode === 'h2' }" @click="focusGraphNode('r3')">
-                <rect x="290" y="260" width="180" height="50" />
-                <text x="305" y="282">{{ t('graph.r3Node') }}</text>
-                <text x="305" y="296" class="node-subtext" style="fill: var(--accent-success);">{{ t('graph.r3Sub') }}</text>
-              </g>
-
-              <g class="node" id="node-conc" :class="{ dimmed: isNodeDimmed('node-conc'), highlighted: focusedNode === 'h2' }" @click="focusGraphNode('conc')">
-                <rect x="290" y="380" width="180" height="45" />
-                <text x="305" y="407" style="font-weight: 600;">{{ t('graph.concNode') }}</text>
-              </g>
-            </svg>
+          <!-- 真实动态图谱 -->
+          <div v-else style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+            <div v-for="node in graphNodesList" :key="node.id" class="card" style="background: var(--bg-surface-1); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px; transition: all 0.2s;" :style="focusedNode === node.id ? 'border-color: var(--accent-science); box-shadow: 0 0 12px rgba(56,139,253,0.3);' : ''" @click="focusGraphNode(node.id)">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span class="badge-status" :class="node.type === 'hypothesis' ? 'badge-support' : node.type === 'conclusion' ? 'badge-active' : 'badge-moderate'" style="font-size: 10px;">
+                  {{ node.type.toUpperCase() }}
+                </span>
+                <span class="font-mono text-muted" style="font-size: 11px;">{{ node.id }}</span>
+              </div>
+              <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; line-height: 1.4;">
+                {{ node.title }}
+              </div>
+              <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+                {{ node.subtext }}
+              </div>
+            </div>
           </div>
         </div>
       </main>
@@ -1664,6 +1663,30 @@ export default {
         }
       })
     },
+    graphNodesList() {
+      const nodes = []
+      if (this.project?.questions?.length) {
+        for (const q of this.project.questions) {
+          nodes.push({ id: `rq_${q.id}`, type: 'question', title: '核心科学问题', subtext: q.text, raw: q })
+        }
+      }
+      if (this.graphData?.hypotheses?.length) {
+        for (const h of this.graphData.hypotheses) {
+          nodes.push({ id: `hyp_${h.id}`, type: 'hypothesis', title: h.title, subtext: `状态: ${h.status || 'testing'}`, raw: h })
+        }
+      }
+      if (this.graphData?.runs?.length) {
+        for (const r of this.graphData.runs) {
+          nodes.push({ id: `run_${r.id}`, type: 'run', title: r.name || r.id, subtext: `状态: ${r.status}`, raw: r })
+        }
+      }
+      if (this.graphData?.conclusions?.length) {
+        for (const c of this.graphData.conclusions) {
+          nodes.push({ id: `conc_${c.id}`, type: 'conclusion', title: c.statement || c.title, subtext: `置信度: ${c.confidence}`, raw: c })
+        }
+      }
+      return nodes
+    },
     displayedChatMessages() {
       if (this.chatMessages.length === 0) {
         return [
@@ -1759,9 +1782,21 @@ export default {
           this.loadTimeline(),
           this.loadAllRuns(),
           this.loadProjectEnvironment(),
+          this.loadGraphData(),
         ])
       } catch (e) {
         console.error('加载项目详情失败:', e)
+      }
+    },
+    async loadGraphData() {
+      if (!this.currentProjectId) return
+      try {
+        const resp = await fetch(`/api/projects/${this.currentProjectId}/graph`)
+        if (resp.ok) {
+          this.graphData = await resp.json()
+        }
+      } catch (e) {
+        console.error('加载推理图谱失败:', e)
       }
     },
     async openEnvSettingsModal() {
