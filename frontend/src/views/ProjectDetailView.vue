@@ -31,12 +31,24 @@
                 :class="{ active: p.id === currentProjectId }"
                 @click="switchProject(p.id)"
               >
-                <div class="di-name">
-                  <i class="fa-solid fa-folder" style="font-size: 11px; margin-right: 6px;"></i>
-                  {{ p.name }}
-                </div>
-                <div class="di-meta font-mono">
-                  {{ p.experiment_ids?.length || 0 }} {{ lang === 'en-US' ? 'Exps' : '实验' }} · {{ p.questions?.length || 0 }} {{ lang === 'en-US' ? 'RQs' : '问题' }}
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                  <div>
+                    <div class="di-name">
+                      <i class="fa-solid fa-folder" style="font-size: 11px; margin-right: 6px;"></i>
+                      {{ p.name }}
+                    </div>
+                    <div class="di-meta font-mono">
+                      {{ p.experiment_ids?.length || 0 }} {{ lang === 'en-US' ? 'Exps' : '实验' }} · {{ p.questions?.length || 0 }} {{ lang === 'en-US' ? 'RQs' : '问题' }}
+                    </div>
+                  </div>
+                  <button
+                    class="btn-icon-del"
+                    style="background: transparent; border: none; color: #ef4444; opacity: 0.7; cursor: pointer; padding: 4px 6px; border-radius: 4px;"
+                    @click.stop="deleteProject(p.id, p.name)"
+                    :title="lang === 'en-US' ? 'Delete this project' : '删除此项目'"
+                  >
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
                 </div>
               </div>
             </div>
@@ -113,7 +125,7 @@
         <a class="nav-item" :class="{ active: activeTab === 'literature' }" @click="activeTab = 'literature'">
           <i class="fa-solid fa-book-bookmark"></i>
           <span>{{ t('nav.literature') }}</span>
-          <span class="nav-badge">12</span>
+          <span class="nav-badge">{{ papersCount }}</span>
         </a>
 
         <div class="nav-section-title">{{ t('nav.experiment') }}</div>
@@ -321,30 +333,30 @@
             </div>
           </div>
 
-          <!-- 3. NEXT RESEARCH ACTION 核心决策卡片 -->
-          <div class="next-action-card">
+          <!-- 3. NEXT RESEARCH ACTION (有真实推演建议时渲染，无建议时呈现指引) -->
+          <div v-if="cockpitData?.next_research_action?.title" class="next-action-card">
             <div class="next-action-badge">
               <i class="fa-solid fa-bolt" style="font-size: 9px;"></i>
               <span>{{ t('overview.nextActionBadge') }}</span>
             </div>
 
             <div class="action-header-title">
-              {{ cockpitData?.next_research_action?.title || t('overview.nextActionTitle') }}
+              {{ cockpitData.next_research_action.title }}
             </div>
             
             <div class="action-reasoning">
-              {{ cockpitData?.next_research_action?.expected_outcome || cockpitData?.next_research_action?.rationale || t('overview.nextActionReason') }}
+              {{ cockpitData.next_research_action.expected_outcome || cockpitData.next_research_action.rationale }}
             </div>
 
             <!-- 不确定性消除声明 (Uncertainty Addressed) -->
-            <div v-if="cockpitData?.next_research_action?.uncertainty_addressed" style="margin: 8px 0; font-size: 12px; color: var(--accent-warning); background: var(--bg-surface-2); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-default);">
+            <div v-if="cockpitData.next_research_action.uncertainty_addressed" style="margin: 8px 0; font-size: 12px; color: var(--accent-warning); background: var(--bg-surface-2); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-default);">
               <i class="fa-solid fa-crosshairs" style="margin-right: 6px;"></i>
               <strong>{{ lang === 'en-US' ? 'Uncertainty Addressed:' : '解决的不确定性：' }}</strong>
               <span>{{ cockpitData.next_research_action.uncertainty_addressed }}</span>
             </div>
 
             <!-- 详细推演依据 (Why & Reasoning Basis) -->
-            <div v-if="(cockpitData?.next_research_action?.why || cockpitData?.next_research_action?.reasoning_basis)?.length" class="reasoning-basis-box">
+            <div v-if="(cockpitData.next_research_action.why || cockpitData.next_research_action.reasoning_basis)?.length" class="reasoning-basis-box">
               <div class="r-basis-title">
                 <i class="fa-solid fa-lightbulb" style="font-size: 11px; margin-right: 5px; color: var(--accent-warning);"></i>
                 <span>{{ lang === 'en-US' ? 'Why This Experiment? (Evidence-Based Justification):' : '为什么做此实验？(推演论据与依据)：' }}</span>
@@ -360,29 +372,29 @@
             <!-- 结构化参数对比 Pill -->
             <div class="param-pill-group">
               <div
-                v-for="(pval, pkey) in (cockpitData?.next_research_action?.variables || { k: 22, lr: '1e-4' })"
+                v-for="(pval, pkey) in (cockpitData.next_research_action.variables || {})"
                 :key="pkey"
                 class="param-pill"
               >
                 <span class="param-key">{{ pkey }}:</span>
                 <span class="param-val font-mono">{{ pval }}</span>
               </div>
-              <div class="param-pill">
+              <div v-if="cockpitData.next_research_action.information_gain" class="param-pill">
                 <span class="param-key">{{ t('overview.infoGain') }}</span>
                 <span class="param-val" style="color: var(--accent-success); font-weight: 700;">
-                  {{ cockpitData?.next_research_action?.information_gain || t('overview.highGain') }}
+                  {{ cockpitData.next_research_action.information_gain }}
                 </span>
               </div>
-              <div class="param-pill">
+              <div v-if="cockpitData.next_research_action.estimated_cost?.gpu_hours" class="param-pill">
                 <span class="param-key">{{ t('overview.computeEst') }}</span>
                 <span class="param-val">
-                  {{ cockpitData?.next_research_action?.estimated_cost?.gpu_hours ? (cockpitData.next_research_action.estimated_cost.gpu_hours + ' GPU hrs') : '1.2 GPU hrs' }}
+                  {{ cockpitData.next_research_action.estimated_cost.gpu_hours }} GPU hrs
                 </span>
               </div>
-              <div class="param-pill">
+              <div v-if="cockpitData.next_research_action.risk_level" class="param-pill">
                 <span class="param-key">{{ lang === 'en-US' ? 'Risk:' : '风险:' }}</span>
                 <span class="param-val" style="color: var(--accent-success);">
-                  {{ cockpitData?.next_research_action?.risk_level || 'LOW' }}
+                  {{ cockpitData.next_research_action.risk_level }}
                 </span>
               </div>
             </div>
@@ -393,10 +405,32 @@
                 <span>{{ t('overview.approveRun') }}</span>
               </button>
               <button class="btn-secondary" @click="modifyProtocol">{{ t('overview.modify') }}</button>
-              <button class="btn-secondary" @click="openEvidenceDrawer(cockpitData?.next_research_action?.evidence_refs?.[0]?.id || 'Run #02')">
+              <button v-if="cockpitData.next_research_action.evidence_refs?.length" class="btn-secondary" @click="openEvidenceDrawer(cockpitData.next_research_action.evidence_refs[0]?.id)">
                 <i class="fa-solid fa-magnifying-glass" style="font-size: 10px; margin-right: 4px;"></i>
                 <span>{{ lang === 'en-US' ? 'View Evidence' : '查看支撑证据' }}</span>
               </button>
+            </div>
+          </div>
+
+          <div v-else class="card" style="margin-bottom: 24px; padding: 18px; border-left: 3px solid var(--accent-science); background: var(--bg-surface-1);">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <div style="font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-solid fa-compass" style="color: var(--accent-science);"></i>
+                  <span>{{ lang === 'en-US' ? 'Next Action Guidance' : '下一步研究探索指引' }}</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+                  {{ lang === 'en-US' ? 'No automated recommendation yet. Propose your first scientific hypothesis or configure your baseline experiment to begin.' : '当前暂无自动化推演建议。请先在「科学假说」中提出您的机理假设，或在「实验方案」中创建并运行首个基线实验。' }}
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn-secondary" style="font-size: 11px;" @click="activeTab = 'hypotheses'">
+                  <i class="fa-solid fa-lightbulb"></i> {{ lang === 'en-US' ? 'Propose Hypothesis' : '提出假说' }}
+                </button>
+                <button class="btn-action-primary" style="font-size: 11px;" @click="openNewExperimentModal">
+                  <i class="fa-solid fa-plus"></i> {{ lang === 'en-US' ? 'New Experiment' : '新建实验' }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -529,6 +563,9 @@
                     <i class="fa-solid fa-code"></i> {{ lang === 'en-US' ? 'Code & Debug' : '💻 代码与调试' }}
                   </button>
                   <button class="btn-secondary" style="font-size: 11px; padding: 3px 8px;" @click="createNewRun(eid)">+ {{ lang === 'en-US' ? 'New Run' : '发起新 Run' }}</button>
+                  <button class="btn-secondary" style="font-size: 11px; padding: 3px 8px; color: #ef4444; border-color: rgba(239,68,68,0.3);" @click="deleteExperiment(eid)" :title="lang === 'en-US' ? 'Delete this experiment and its runs' : '删除此实验方案及其运行记录'">
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
                 </div>
               </div>
 
@@ -744,7 +781,7 @@
           <!-- Active Context -->
           <div class="agent-context-box">
             <div class="context-label">{{ t('agent.activeContext') }}</div>
-            <div class="context-value">{{ t('agent.ctxH2') }}</div>
+            <div class="context-value">{{ (project?.questions && project.questions[0]?.text) || project?.name || (lang === 'en-US' ? 'No active context' : '暂无活跃上下文') }}</div>
           </div>
 
           <!-- Suggested Actions -->
@@ -774,6 +811,9 @@
           <div>
             <div class="context-label" style="margin-bottom: 10px;">{{ t('agent.activityLog') }}</div>
             <div class="activity-log">
+              <div v-if="!formattedActivityLogs?.length" class="text-muted" style="font-size: 12px; font-style: italic; padding: 6px 0;">
+                {{ lang === 'en-US' ? 'No background tasks' : '暂无后台运行任务' }}
+              </div>
               <div v-for="(log, idx) in formattedActivityLogs" :key="idx" class="activity-item">
                 <i v-if="log.done" class="fa-solid fa-check activity-icon-success"></i>
                 <i v-else class="fa-solid fa-spinner activity-icon-spinner"></i>
@@ -1517,6 +1557,7 @@ export default {
       conclusionsCount: 0,
       artifactsCount: 0,
       totalRunsCount: 0,
+      papersCount: 0,
       showCmdPalette: false,
       cmdQuery: '',
       showDocModal: false,
@@ -1540,12 +1581,7 @@ export default {
       chatInput: '',
       chatLoading: false,
       chatMessages: [],
-      activityLogs: [
-        { done: true, key: 'log1' },
-        { done: true, key: 'log2' },
-        { done: true, key: 'log3' },
-        { done: false, key: 'log4' },
-      ],
+      activityLogs: [],
       cockpitData: null,
       timelineEvents: [],
       loadingCockpit: false,
@@ -1703,6 +1739,12 @@ export default {
       if (!this.currentProjectId) return
       try {
         this.project = await projectApi.get(this.currentProjectId)
+        const [papersResp, hypsResp] = await Promise.all([
+          fetch(`/api/projects/${this.currentProjectId}/papers`).then(r => r.ok ? r.json() : { papers: [] }).catch(() => ({ papers: [] })),
+          fetch(`/api/projects/${this.currentProjectId}/hypotheses`).then(r => r.ok ? r.json() : { hypotheses: [] }).catch(() => ({ hypotheses: [] })),
+        ])
+        this.papersCount = papersResp.papers?.length || 0
+        this.hypothesesCount = hypsResp.hypotheses?.length || 0
         await Promise.all([
           this.loadCockpit(),
           this.loadTimeline(),
@@ -2169,6 +2211,46 @@ export default {
         alert('诊断失败: ' + err.message)
       } finally {
         this.debuggingExpCode = false
+      }
+    },
+    async deleteExperiment(experimentId) {
+      const confirmed = confirm(this.lang === 'en-US' ? `Are you sure you want to delete experiment "${experimentId}" and all its runs?` : `确定要删除实验方案「${experimentId}」及其所有关联运行记录吗？`)
+      if (!confirmed) return
+      try {
+        const resp = await fetch(`/api/projects/${this.currentProjectId}/experiments/${experimentId}`, {
+          method: 'DELETE',
+        })
+        if (resp.ok) {
+          await this.loadProjectData()
+        } else {
+          alert('删除失败')
+        }
+      } catch (e) {
+        alert('删除请求失败: ' + e.message)
+      }
+    },
+    async deleteProject(projectId, projectName) {
+      const confirmed = confirm(this.lang === 'en-US' ? `Are you sure you want to delete project "${projectName}"?` : `确定要删除科研课题「${projectName}」吗？`)
+      if (!confirmed) return
+      try {
+        const resp = await fetch(`/api/projects/${projectId}`, {
+          method: 'DELETE',
+        })
+        if (resp.ok) {
+          await this.loadAllProjects()
+          if (this.currentProjectId === projectId) {
+            if (this.allProjects.length > 0) {
+              await this.switchProject(this.allProjects[0].id)
+            } else {
+              this.project = null
+              this.currentProjectId = ''
+            }
+          }
+        } else {
+          alert('删除失败')
+        }
+      } catch (e) {
+        alert('删除项目失败: ' + e.message)
       }
     },
     async createNewRun(experimentId) {

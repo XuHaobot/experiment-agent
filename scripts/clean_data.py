@@ -21,6 +21,9 @@ SUBDIRS_TO_CLEAR = [
     "approvals",
     "reports",
     "audit",
+    "diary",
+    "sessions",
+    "privacy_approvals",
 ]
 
 

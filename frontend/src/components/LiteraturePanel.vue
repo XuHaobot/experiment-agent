@@ -202,7 +202,7 @@ export default {
   data() {
     return {
       litTab: 'search',
-      query: 'dynamic graph topological robustness facial expression',
+      query: '',
       source: 'openalex',
       papers: [],
       savedPapers: [],

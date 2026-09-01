@@ -1121,12 +1121,30 @@ async def add_experiment_to_project(project_id: str, record_id: str):
 
 @app.delete("/api/projects/{project_id}/experiments/{record_id}")
 def remove_experiment_from_project(project_id: str, record_id: str):
-    """从 Project 解除实验关联"""
+    """从 Project 解除实验关联并清理实验记录与关联 Runs"""
     _assert_writable()
     from backend.domain.project import remove_experiment_from_project as _remove_exp
     project = _remove_exp(project_id, record_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project 不存在")
+    
+    # 清理 data/records/<record_id>.json
+    rec_file = DATA_DIR / "records" / f"{record_id}.json"
+    if rec_file.exists():
+        try:
+            rec_file.unlink()
+        except Exception:
+            pass
+
+    # 清理关联 runs
+    try:
+        from backend.domain.run import list_runs, delete_run
+        runs = list_runs(record_id)
+        for r in runs:
+            delete_run(r["id"])
+    except Exception:
+        pass
+
     return {"ok": True}
 
 
