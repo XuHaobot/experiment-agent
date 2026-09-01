@@ -127,6 +127,11 @@
           <span>{{ t('nav.literature') }}</span>
           <span class="nav-badge">{{ papersCount }}</span>
         </a>
+        <a class="nav-item" :class="{ active: activeTab === 'datasets' }" @click="activeTab = 'datasets'">
+          <i class="fa-solid fa-database"></i>
+          <span>{{ t('nav.datasets') }}</span>
+          <span class="nav-badge">{{ datasetsCount }}</span>
+        </a>
 
         <div class="nav-section-title">{{ t('nav.experiment') }}</div>
         <a class="nav-item" :class="{ active: activeTab === 'experiments' }" @click="activeTab = 'experiments'">
@@ -531,6 +536,11 @@
         <!-- VIEW 4: LITERATURE -->
         <div v-if="activeTab === 'literature'" class="workspace-view">
           <LiteraturePanel :project-id="currentProjectId" :lang="lang" />
+        </div>
+
+        <!-- VIEW 4.5: DATASETS -->
+        <div v-if="activeTab === 'datasets'" class="workspace-view">
+          <DatasetExplorerPanel :project-id="currentProjectId" :lang="lang" @refresh="loadProject" />
         </div>
 
         <!-- VIEW 5: EXPERIMENTS & RUNS -->
@@ -1229,6 +1239,7 @@
 import { projectApi } from '../api/project.js'
 import HypothesisPanel from '../components/HypothesisPanel.vue'
 import LiteraturePanel from '../components/LiteraturePanel.vue'
+import DatasetExplorerPanel from '../components/DatasetExplorerPanel.vue'
 import NextExperimentPanel from '../components/NextExperimentPanel.vue'
 import DataAnalysisPanel from '../components/DataAnalysisPanel.vue'
 import ArtifactPanel from '../components/ArtifactPanel.vue'
@@ -1254,6 +1265,7 @@ const I18N_DICT = {
       questions: 'Questions',
       hypotheses: 'Hypotheses',
       literature: 'Literature',
+      datasets: 'Datasets',
       experiment: 'Experiment',
       experiments: 'Experiments',
       runs: 'Runs',
@@ -1388,6 +1400,7 @@ const I18N_DICT = {
       questions: '核心问题',
       hypotheses: '科学假说',
       literature: '文献库',
+      datasets: '数据集库',
       experiment: '实验体系',
       experiments: '实验方案',
       runs: '运行记录',
@@ -1516,6 +1529,7 @@ export default {
   components: {
     HypothesisPanel,
     LiteraturePanel,
+    DatasetExplorerPanel,
     NextExperimentPanel,
     DataAnalysisPanel,
     ArtifactPanel,
@@ -1558,6 +1572,7 @@ export default {
       artifactsCount: 0,
       totalRunsCount: 0,
       papersCount: 0,
+      datasetsCount: 0,
       showCmdPalette: false,
       cmdQuery: '',
       showDocModal: false,
@@ -1739,12 +1754,14 @@ export default {
       if (!this.currentProjectId) return
       try {
         this.project = await projectApi.get(this.currentProjectId)
-        const [papersResp, hypsResp] = await Promise.all([
+        const [papersResp, hypsResp, datasetsResp] = await Promise.all([
           fetch(`/api/projects/${this.currentProjectId}/papers`).then(r => r.ok ? r.json() : { papers: [] }).catch(() => ({ papers: [] })),
           fetch(`/api/projects/${this.currentProjectId}/hypotheses`).then(r => r.ok ? r.json() : { hypotheses: [] }).catch(() => ({ hypotheses: [] })),
+          fetch(`/api/projects/${this.currentProjectId}/datasets`).then(r => r.ok ? r.json() : { datasets: [] }).catch(() => ({ datasets: [] })),
         ])
         this.papersCount = papersResp.papers?.length || 0
         this.hypothesesCount = hypsResp.hypotheses?.length || 0
+        this.datasetsCount = datasetsResp.datasets?.length || 0
         await Promise.all([
           this.loadCockpit(),
           this.loadTimeline(),

@@ -93,6 +93,57 @@ def create_dataset_from_csv(
     return record
 
 
+def save_online_dataset_to_project(
+    project_id: str,
+    dataset_data: dict[str, Any],
+) -> dict[str, Any]:
+    """将在线检索到的公开数据集实体沉淀至 Project 课题下"""
+    _ensure_dir()
+    from backend.domain.project import get_project, update_project
+
+    proj = get_project(project_id)
+    if not proj:
+        raise ValueError(f"Project 不存在: {project_id}")
+
+    raw_id = dataset_data.get("dataset_id") or dataset_data.get("id") or ""
+    clean_id = raw_id.replace(":", "_").replace("/", "_")
+    dataset_id = f"ds_{clean_id}" if clean_id else f"ds_{uuid.uuid4().hex[:10]}"
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    record: dict[str, Any] = {
+        "id": dataset_id,
+        "dataset_id": dataset_id,
+        "project_id": project_id,
+        "name": dataset_data.get("name") or raw_id or "Untitled Dataset",
+        "description": dataset_data.get("description", ""),
+        "source": dataset_data.get("source", "online"),
+        "url": dataset_data.get("url"),
+        "format": "online",
+        "downloads": dataset_data.get("downloads", 0),
+        "likes": dataset_data.get("likes", 0),
+        "papers_count": dataset_data.get("papers_count", 0),
+        "tasks": dataset_data.get("tasks", []),
+        "modalities": dataset_data.get("modalities", []),
+        "license": dataset_data.get("license", ""),
+        "viewer_url": dataset_data.get("viewer_url"),
+        "load_code": dataset_data.get("load_code", ""),
+        "metadata": dataset_data.get("metadata", {}),
+        "created_at": now,
+    }
+
+    _dataset_meta_path(dataset_id).write_text(
+        json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    current_datasets = list(proj.get("dataset_ids", []))
+    if dataset_id not in current_datasets:
+        current_datasets.append(dataset_id)
+        update_project(project_id, {"dataset_ids": current_datasets})
+
+    logger.info("Online Dataset %s saved to project %s", dataset_id, project_id)
+    return record
+
+
 def list_project_datasets(project_id: str) -> list[dict[str, Any]]:
     """获取 Project 下的所有 Dataset 列表"""
     _ensure_dir()

@@ -2034,6 +2034,26 @@ def get_dataset_summary_route(dataset_id: str):
     return res
 
 
+@app.get("/api/datasets/search")
+def search_online_datasets_route(query: str, source: str = "huggingface", limit: int = 10):
+    """跨平台公开数据集检索 (Hugging Face / Papers With Code)"""
+    from backend.integrations.datasets import search_online_datasets
+    datasets = search_online_datasets(query=query, source=source, limit=limit)
+    return {"query": query, "source": source, "datasets": datasets, "count": len(datasets)}
+
+
+@app.post("/api/projects/{project_id}/datasets/import-online")
+def import_online_dataset_route(project_id: str, body: dict):
+    """将在线检索到的公开数据集沉淀至课题项目"""
+    from backend.domain.dataset import save_online_dataset_to_project
+    dataset_data = body.get("dataset", body)
+    try:
+        saved = save_online_dataset_to_project(project_id=project_id, dataset_data=dataset_data)
+        return {"ok": True, "dataset": saved}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.delete("/api/datasets/{dataset_id}")
 def delete_dataset_route(dataset_id: str):
     """删除 Dataset"""
