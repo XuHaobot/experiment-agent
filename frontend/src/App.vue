@@ -101,4 +101,85 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-active);
 }
+
+/* 全局通用输入控件与暗黑主题表单适配 */
+input, textarea, select {
+  background-color: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent-science);
+}
+
+.modal-input, .modal-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-surface-2) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: 6px;
+  font-size: 13px;
+  transition: border-color 0.2s;
+}
+
+.modal-input:focus, .modal-textarea:focus {
+  border-color: var(--accent-science) !important;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.btn-secondary {
+  background-color: var(--bg-surface-2) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-default) !important;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background-color: var(--bg-hover) !important;
+  border-color: var(--border-active) !important;
+}
+
+.btn-action-primary {
+  background-color: var(--accent-science) !important;
+  color: #ffffff !important;
+  border: 1px solid transparent !important;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-action-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-action-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 </style>
