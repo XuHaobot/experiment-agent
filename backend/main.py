@@ -1478,10 +1478,10 @@ def get_project_cockpit(project_id: str):
         "next_research_action": next_action,
         "research_state": research_state,
         "cadence": {
-            "cycle": f"Cycle #{len(all_runs) + 1:02d}",
+            "cycle": f"周期 #{len(all_runs):02d}" if len(all_runs) > 0 else "初始阶段",
             "total_runs": len(all_runs),
-            "best_accuracy": f"{best_acc*100:.1f}% ({best_run.get('id')})" if best_run and best_acc >= 0 else "N/A",
-            "runtime_total": f"{len(all_runs) * 1.6:.1f} hrs",
+            "best_accuracy": f"{best_acc*100:.1f}% ({best_run.get('id')})" if best_run and best_acc >= 0 else "暂无数据",
+            "runtime_total": f"{len(all_runs) * 1.6:.1f} 小时",
         },
     }
 
