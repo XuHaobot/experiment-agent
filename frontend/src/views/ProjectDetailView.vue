@@ -153,7 +153,7 @@
         <a class="nav-item" :class="{ active: activeTab === 'evidence' }" @click="activeTab = 'evidence'">
           <i class="fa-solid fa-shield-halved"></i>
           <span>{{ t('nav.evidence') }}</span>
-          <span class="nav-badge">4</span>
+          <span class="nav-badge">{{ displayedEvidenceLedger.length }}</span>
         </a>
         <a class="nav-item" :class="{ active: activeTab === 'conclusions' }" @click="activeTab = 'conclusions'">
           <i class="fa-solid fa-circle-check"></i>
@@ -446,7 +446,10 @@
               <span class="view-link" @click="activeTab = 'graph'">{{ t('overview.viewGraph') }}</span>
             </div>
 
-            <div class="evidence-list">
+            <div v-if="!displayedEvidenceLedger.length" class="empty-hint" style="padding: 16px 0; text-align: left;">
+              {{ lang === 'en-US' ? 'No evidence items recorded yet in this project.' : '暂无沉淀证据记录。' }}
+            </div>
+            <div v-else class="evidence-list">
               <div
                 v-for="ev in displayedEvidenceLedger"
                 :key="ev.id"
@@ -665,34 +668,23 @@
             <div class="project-title-large">{{ t('nav.evidence') }}</div>
             <p class="text-secondary" style="font-size: 13px; margin: 4px 0 0;">{{ lang === 'en-US' ? 'Bidirectional trace linking scientific claims to empirical runs and literature data.' : '双向关联科研结论与底层数据支撑链条。' }}</p>
           </div>
-          <div class="evidence-list">
-            <div class="evidence-item" @click="openEvidenceDrawer('Run #01')">
+          <div v-if="!displayedEvidenceLedger.length" class="empty-hint">
+            {{ lang === 'en-US' ? 'No evidence items recorded yet in this project. Run experiments or slice evidence from literature to populate the ledger.' : '当前课题暂无沉淀的证据项。运行实验生成评测指标或在文献库提取段落切片后，将在此自动形成证据链条。' }}
+          </div>
+          <div v-else class="evidence-list">
+            <div
+              v-for="ev in displayedEvidenceLedger"
+              :key="ev.id"
+              class="evidence-item"
+              @click="openEvidenceDrawer(ev.id)"
+            >
               <div class="evidence-item-left">
-                <span class="evidence-ref">Run #01</span>
-                <span class="evidence-desc">{{ lang === 'zh-CN' ? '静态 k-NN 拓扑在 15% 噪声抖动下崩溃 (k=8)' : 'Static k-NN topology collapsed at k=8 under 15% noise jitter' }}</span>
+                <span class="evidence-ref">{{ ev.id }}</span>
+                <span class="evidence-desc">{{ ev.snippet }}</span>
               </div>
-              <span class="badge-status badge-contradict">{{ t('evidenceStatus.contradict') }}</span>
-            </div>
-            <div class="evidence-item" @click="openEvidenceDrawer('Run #02')">
-              <div class="evidence-item-left">
-                <span class="evidence-ref">Run #02</span>
-                <span class="evidence-desc">{{ lang === 'zh-CN' ? '动态边更新率 > 0.5 保留了局部流形结构' : 'Dynamic edge update rate > 0.5 preserved local manifold structure' }}</span>
-              </div>
-              <span class="badge-status badge-support">{{ t('evidenceStatus.support') }}</span>
-            </div>
-            <div class="evidence-item" @click="openEvidenceDrawer('Run #03')">
-              <div class="evidence-item-left">
-                <span class="evidence-ref">Run #03</span>
-                <span class="evidence-desc">{{ lang === 'zh-CN' ? '准确率达到 83.2% (k=16)，证明边更新增强了鲁棒性' : 'Accuracy reached 83.2% with k=16, demonstrating edge updates boost resilience' }}</span>
-              </div>
-              <span class="badge-status badge-support">{{ t('evidenceStatus.support') }}</span>
-            </div>
-            <div class="evidence-item" @click="openEvidenceDrawer('Paper #08')">
-              <div class="evidence-item-left">
-                <span class="evidence-ref">Paper #08</span>
-                <span class="evidence-desc">{{ lang === 'zh-CN' ? '人脸识别动态图网络 (理论稳定性界限分析)' : 'Dynamic Graph Networks for Facial Recognition (Theoretical stability bound)' }}</span>
-              </div>
-              <span class="badge-status badge-support">{{ t('evidenceStatus.support') }}</span>
+              <span class="badge-status" :class="ev.stance === 'SUPPORT' ? 'badge-support' : 'badge-contradict'">
+                {{ ev.stance === 'SUPPORT' ? t('evidenceStatus.support') : t('evidenceStatus.contradict') }}
+              </span>
             </div>
           </div>
         </div>
@@ -2027,12 +2019,13 @@ export default {
     },
     openEvidenceDrawer(sourceRef) {
       this.evidenceDrawer.sourceRef = sourceRef
-      if (sourceRef === 'Run #01') {
-        this.evidenceDrawer.claim = this.lang === 'zh-CN' ? '静态 k-NN 拓扑在 15% 噪声抖动下崩溃 (k=8)' : 'Static k-NN topology collapsed at k=8 under 15% noise jitter'
-        this.evidenceDrawer.badgeClass = 'badge-contradict'
-        this.evidenceDrawer.badgeText = this.t('evidenceStatus.contradict')
+      const ev = (this.displayedEvidenceLedger || []).find(e => e.id === sourceRef)
+      if (ev) {
+        this.evidenceDrawer.claim = ev.snippet || ev.id
+        this.evidenceDrawer.badgeClass = ev.stance === 'SUPPORT' ? 'badge-support' : 'badge-contradict'
+        this.evidenceDrawer.badgeText = ev.stance === 'SUPPORT' ? this.t('evidenceStatus.support') : this.t('evidenceStatus.contradict')
       } else {
-        this.evidenceDrawer.claim = this.t('hypothesis.title')
+        this.evidenceDrawer.claim = sourceRef || 'Evidence Detail'
         this.evidenceDrawer.badgeClass = 'badge-support'
         this.evidenceDrawer.badgeText = this.t('evidenceStatus.support')
       }

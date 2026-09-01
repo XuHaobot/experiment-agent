@@ -1410,17 +1410,11 @@ def get_project_cockpit(project_id: str):
 
     # 1. 核心科学问题
     questions = project.get("questions", [])
-    active_question = questions[0]["text"] if questions else "Can dynamic graph updates improve topological robustness under noisy inputs?"
+    active_question = questions[0]["text"] if questions else None
 
     # 2. 核心科学假说
     hyps = list_hypotheses(project_id)
-    active_hyp = hyps[0] if hyps else {
-        "id": "H1",
-        "title": "动态图拓扑鲁棒性验证",
-        "description": "通过动态边更新维持局部流形结构。",
-        "status": "testing",
-        "evidence": [],
-    }
+    active_hyp = hyps[0] if hyps else None
 
     # 3. 汇总历史 Runs
     all_runs = []
