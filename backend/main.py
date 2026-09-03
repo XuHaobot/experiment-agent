@@ -196,6 +196,56 @@ def inspect_environment(req: InspectEnvRequest):
     return res
 
 
+class OpenBayesAuthRequest(BaseModel):
+    token: str
+
+
+class OpenBayesRunRequest(BaseModel):
+    code: Optional[str] = None
+    resource: Optional[str] = "cpu"
+    env_name: Optional[str] = "pytorch-2.0"
+    timeout: Optional[int] = 300
+
+
+@app.get("/api/cloud/openbayes/status")
+def get_openbayes_status():
+    """获取 OpenBayes / HyperAI CLI 与登录状态"""
+    from backend.integrations.execution.openbayes_runner import openbayes_runner
+    return openbayes_runner.check_cli_status()
+
+
+@app.post("/api/cloud/openbayes/auth")
+def auth_openbayes(req: OpenBayesAuthRequest):
+    """绑定 OpenBayes / HyperAI API Token"""
+    from backend.integrations.execution.openbayes_runner import openbayes_runner
+    return openbayes_runner.login_with_token(req.token)
+
+
+@app.post("/api/cloud/openbayes/test-run")
+def test_run_openbayes(req: OpenBayesRunRequest):
+    """在 OpenBayes 免费 CPU 容器中运行测试探针代码，执行完毕自动关停"""
+    from backend.integrations.execution.openbayes_runner import openbayes_runner
+    probe_code = req.code or """
+import sys, platform, os, time
+
+print("="*50)
+print("[HyperAI / OpenBayes 免费 CPU 容器运行成功]")
+print(f"Python 版本: {sys.version.split()[0]}")
+print(f"操作系统平台: {platform.platform()}")
+print(f"CPU 核心数: {os.cpu_count()}")
+print(f"容器工作路径: {os.getcwd()}")
+print(f"当前时间戳: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+print("[生命周期保护]: 任务已全部完成，容器正在自动销毁关停并停止计费...")
+print("="*50)
+"""
+    return openbayes_runner.run_code(
+        code=probe_code,
+        resource=req.resource or "cpu",
+        env_name=req.env_name or "pytorch-2.0",
+        timeout=req.timeout or 300,
+    )
+
+
 class UpdateProjectEnvRequest(BaseModel):
     python_executable: Optional[str] = None
     env_name: Optional[str] = None

@@ -1035,59 +1035,149 @@
           <button class="btn-close-drawer" @click="showEnvModal = false"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="modal-body" style="padding: 20px;">
-          <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;">
-            {{ lang === 'en-US' ? 'Configure the specific Python environment (Conda / Venv / System) and working directory for this research group/project. Multi-group shared machines can isolate packages and paths independently.' : '为当前课题组/项目绑定专属的 Python 虚拟环境（Conda / Venv / 系统安装）与工作空间。在多人共用单机时，不同课题组可使用各自独立的依赖与数据路径。' }}
-          </div>
-
-          <!-- 1. 虚拟环境选择 -->
-          <div class="form-group" style="margin-bottom: 16px;">
-            <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: block;">{{ lang === 'en-US' ? 'Select Python Environment:' : '选择 Python 虚拟环境：' }}</label>
-            <select v-model="selectedEnvExe" @change="onEnvSelectChange" class="form-input" style="width: 100%; font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;">
-              <option v-for="env in scannedEnvs" :key="env.executable" :value="env.executable">
-                {{ env.name }} (Python {{ env.version }}) — {{ env.executable }}
-              </option>
-              <option value="__custom__">{{ lang === 'en-US' ? '+ Custom Python Executable Path...' : '+ 手动输入 Python 解释器路径 (Custom)...' }}</option>
-            </select>
-          </div>
-
-          <!-- 手动输入路径 -->
-          <div v-if="selectedEnvExe === '__custom__'" class="form-group" style="margin-bottom: 16px;">
-            <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: block;">{{ lang === 'en-US' ? 'Custom python.exe / python path:' : '自定义 Python 解释器绝对路径：' }}</label>
-            <input v-model="customEnvExe" placeholder="例如: C:\Users\lab\anaconda3\envs\torch2\python.exe 或 /opt/conda/envs/nlp/bin/python" class="form-input" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;" />
-          </div>
-
-          <!-- 2. 工作空间目录 -->
-          <div class="form-group" style="margin-bottom: 16px;">
-            <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: block;">{{ lang === 'en-US' ? 'Custom Working Directory (Optional):' : '项目工作空间目录（可选，默认当前工程根目录）：' }}</label>
-            <input v-model="envWorkingDir" placeholder="例如: E:\lab_projects\group_a 或 /home/student/project_b" class="form-input" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;" />
-          </div>
-
-          <!-- 3. 环境深度自检按钮与结果 -->
-          <div style="margin-bottom: 16px;">
-            <button class="btn-secondary" style="font-size: 12px; padding: 6px 14px;" :disabled="inspectingEnv" @click="inspectSelectedEnv">
-              <i class="fa-solid fa-stethoscope"></i> {{ inspectingEnv ? '自检中...' : (lang === 'en-US' ? 'Inspect Environment' : '一键环境自检 (包版本与 CUDA)') }}
+          <!-- 算力模式切换 Tab -->
+          <div style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--border-default); padding-bottom: 10px;">
+            <button
+              :class="envModalTab === 'local' ? 'btn-action-primary' : 'btn-secondary'"
+              style="font-size: 12px; padding: 6px 14px;"
+              @click="envModalTab = 'local'"
+            >
+              <i class="fa-brands fa-python"></i> {{ lang === 'en-US' ? 'Local Python Environment' : '本地 Python 虚拟环境' }}
+            </button>
+            <button
+              :class="envModalTab === 'cloud' ? 'btn-action-primary' : 'btn-secondary'"
+              style="font-size: 12px; padding: 6px 14px;"
+              @click="envModalTab = 'cloud'; checkCloudStatus()"
+            >
+              <i class="fa-solid fa-cloud"></i> {{ lang === 'en-US' ? 'HyperAI / OpenBayes Cloud (Free CPU)' : 'HyperAI / OpenBayes 云端容器 (免费 CPU)' }}
             </button>
           </div>
 
-          <!-- 自检结果展示卡片 -->
-          <div v-if="envInspectionResult" style="background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
-            <div v-if="envInspectionResult.valid">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
-                <span class="badge-status badge-support">✓ 环境正常可用 (Python {{ envInspectionResult.version }})</span>
-                <span v-if="envInspectionResult.cuda?.available" class="badge-status badge-support">
-                  ⚡ GPU: {{ envInspectionResult.cuda.device_name }} (CUDA {{ envInspectionResult.cuda.version }})
-                </span>
-                <span v-else class="badge-status badge-moderate">CPU Mode (无 PyTorch CUDA)</span>
+          <!-- TAB 1: 本地环境配置 -->
+          <div v-if="envModalTab === 'local'">
+            <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;">
+              {{ lang === 'en-US' ? 'Configure the specific Python environment (Conda / Venv / System) and working directory for this research group/project. Multi-group shared machines can isolate packages and paths independently.' : '为当前课题组/项目绑定专属的 Python 虚拟环境（Conda / Venv / 系统安装）与工作空间。在多人共用单机时，不同课题组可使用各自独立的依赖与数据路径。' }}
+            </div>
+
+            <!-- 1. 虚拟环境选择 -->
+            <div class="form-group" style="margin-bottom: 16px;">
+              <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: block;">{{ lang === 'en-US' ? 'Select Python Environment:' : '选择 Python 虚拟环境：' }}</label>
+              <select v-model="selectedEnvExe" @change="onEnvSelectChange" class="form-input" style="width: 100%; font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;">
+                <option v-for="env in scannedEnvs" :key="env.executable" :value="env.executable">
+                  {{ env.name }} (Python {{ env.version }}) — {{ env.executable }}
+                </option>
+                <option value="__custom__">{{ lang === 'en-US' ? '+ Custom Python Executable Path...' : '+ 手动输入 Python 解释器路径 (Custom)...' }}</option>
+              </select>
+            </div>
+
+            <!-- 手动输入路径 -->
+            <div v-if="selectedEnvExe === '__custom__'" class="form-group" style="margin-bottom: 16px;">
+              <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: block;">{{ lang === 'en-US' ? 'Custom python.exe / python path:' : '自定义 Python 解释器绝对路径：' }}</label>
+              <input v-model="customEnvExe" placeholder="例如: C:\Users\lab\anaconda3\envs\torch2\python.exe 或 /opt/conda/envs/nlp/bin/python" class="form-input" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;" />
+            </div>
+
+            <!-- 2. 工作空间目录 -->
+            <div class="form-group" style="margin-bottom: 16px;">
+              <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: block;">{{ lang === 'en-US' ? 'Custom Working Directory (Optional):' : '项目工作空间目录（可选，默认当前工程根目录）：' }}</label>
+              <input v-model="envWorkingDir" placeholder="例如: E:\lab_projects\group_a 或 /home/student/project_b" class="form-input" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;" />
+            </div>
+
+            <!-- 3. 环境深度自检按钮与结果 -->
+            <div style="margin-bottom: 16px;">
+              <button class="btn-secondary" style="font-size: 12px; padding: 6px 14px;" :disabled="inspectingEnv" @click="inspectSelectedEnv">
+                <i class="fa-solid fa-stethoscope"></i> {{ inspectingEnv ? '自检中...' : (lang === 'en-US' ? 'Inspect Environment' : '一键环境自检 (包版本与 CUDA)') }}
+              </button>
+            </div>
+
+            <!-- 自检结果展示卡片 -->
+            <div v-if="envInspectionResult" style="background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+              <div v-if="envInspectionResult.valid">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                  <span class="badge-status badge-support">✓ 环境正常可用 (Python {{ envInspectionResult.version }})</span>
+                  <span v-if="envInspectionResult.cuda?.available" class="badge-status badge-support">
+                    ⚡ GPU: {{ envInspectionResult.cuda.device_name }} (CUDA {{ envInspectionResult.cuda.version }})
+                  </span>
+                  <span v-else class="badge-status badge-moderate">CPU Mode (无 PyTorch CUDA)</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">已检测到的科学计算库：</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                  <span v-for="(info, pkg) in envInspectionResult.packages" :key="pkg" class="font-mono" :style="{ color: info.installed ? 'var(--accent-success)' : 'var(--text-muted)', fontSize: '11px', background: 'var(--bg-surface-1)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-default)' }">
+                    {{ pkg }} {{ info.installed ? `v${info.version}` : '✕' }}
+                  </span>
+                </div>
               </div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">已检测到的科学计算库：</div>
-              <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                <span v-for="(info, pkg) in envInspectionResult.packages" :key="pkg" class="font-mono" :style="{ color: info.installed ? 'var(--accent-success)' : 'var(--text-muted)', fontSize: '11px', background: 'var(--bg-surface-1)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-default)' }">
-                  {{ pkg }} {{ info.installed ? `v${info.version}` : '✕' }}
-                </span>
+              <div v-else style="color: var(--accent-danger); font-size: 12px;">
+                ✕ 自检失败: {{ envInspectionResult.error }}
               </div>
             </div>
-            <div v-else style="color: var(--accent-danger); font-size: 12px;">
-              ✕ 自检失败: {{ envInspectionResult.error }}
+          </div>
+
+          <!-- TAB 2: HYPERAI / OPENBAYES 云端算力容器配置 -->
+          <div v-if="envModalTab === 'cloud'">
+            <!-- 状态卡片 -->
+            <div style="background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-solid fa-cloud" style="color: var(--accent-science);"></i>
+                  <span style="font-weight: 600; font-size: 13px; color: var(--text-primary);">OpenBayes / HyperAI 算力引擎</span>
+                </div>
+                <span class="badge-status" :class="cloudStatus.logged_in ? 'badge-support' : 'badge-moderate'">
+                  {{ cloudStatus.logged_in ? `✓ 已连通 (${cloudStatus.username || 'Active'})` : '未绑定 Token' }}
+                </span>
+              </div>
+              <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+                默认算力规格：<strong style="color: var(--accent-success);">免费 CPU 容器 (2~4 vCPU，0 算力点/小时)</strong><br />
+                支持一键分发 Python 任务，无需浏览器自动化，基于原生 CLI 极速调度。
+              </div>
+            </div>
+
+            <!-- Token 绑定输入框 -->
+            <div class="form-group" style="margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 0;">OpenBayes API Token (免密调度凭据):</label>
+                <a href="https://openbayes.com/console/settings/tokens" target="_blank" rel="noopener noreferrer" style="font-size: 11px; color: var(--accent-science); text-decoration: underline;">
+                  获取免费 Token ↗
+                </a>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <input
+                  v-model="cloudToken"
+                  type="password"
+                  placeholder="在此粘贴您的 OpenBayes API Token..."
+                  class="form-input"
+                  style="flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;"
+                />
+                <button class="btn-secondary" style="font-size: 12px; padding: 6px 14px; white-space: nowrap;" :disabled="savingCloudToken || !cloudToken.trim()" @click="saveCloudToken">
+                  {{ savingCloudToken ? '验证中...' : '验证并绑定' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 自动关停承诺与计费安全 -->
+            <div style="background: rgba(46,160,67,0.1); border: 1px solid rgba(46,160,67,0.3); border-radius: 6px; padding: 10px 12px; margin-bottom: 16px; font-size: 11.5px; color: var(--text-secondary); line-height: 1.6;">
+              <strong style="color: var(--accent-success);"><i class="fa-solid fa-shield-halved"></i> 自动关停与计费保护：</strong>
+              本系统调度采用 <code>task</code> 一次性作业容器模式。当 Python 脚本执行完毕或抛错退出时，<strong>云端容器立即由平台底层与 Agent 看门狗自动销毁关停</strong>，绝不会在后台闲置扣费。
+            </div>
+
+            <!-- 一键实测按钮 -->
+            <div style="margin-bottom: 16px;">
+              <button class="btn-action-primary" style="font-size: 12px; padding: 6px 14px;" :disabled="runningCloudTest" @click="runCloudTest">
+                <i class="fa-solid fa-play"></i> {{ runningCloudTest ? '正在拉起云端 CPU 容器运行中...' : '🚀 一键在免费 CPU 容器中运行探针实测' }}
+              </button>
+            </div>
+
+            <!-- 云端实测输出窗口 -->
+            <div v-if="cloudTestResult" style="background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span class="badge-status" :class="cloudTestResult.success ? 'badge-support' : 'badge-contradict'">
+                  {{ cloudTestResult.success ? '✓ 远程容器执行成功' : '✕ 远程容器调度反馈' }}
+                </span>
+                <span v-if="cloudTestResult.execution_time_ms" class="font-mono text-muted" style="font-size: 11px;">
+                  耗时: {{ (cloudTestResult.execution_time_ms / 1000).toFixed(1) }}s | 自动关停: 已生效
+                </span>
+              </div>
+              <pre v-if="cloudTestResult.stdout" class="font-mono" style="margin: 0; padding: 8px; background: var(--bg-surface-1); border-radius: 4px; font-size: 11px; max-height: 180px; overflow-y: auto; color: var(--text-primary); white-space: pre-wrap;">{{ cloudTestResult.stdout }}</pre>
+              <pre v-if="cloudTestResult.error" class="font-mono" style="margin: 0; margin-top: 6px; padding: 8px; background: rgba(248,81,73,0.1); border-radius: 4px; font-size: 11px; max-height: 180px; overflow-y: auto; color: var(--accent-danger); white-space: pre-wrap;">{{ cloudTestResult.error }}</pre>
             </div>
           </div>
         </div>
@@ -1630,6 +1720,13 @@ export default {
       csvTargetExpId: '',
       csvImporting: false,
       showEnvModal: false,
+      envModalTab: 'local',
+      cloudStatus: { installed: true, logged_in: false, username: null },
+      cloudToken: '',
+      checkingCloud: false,
+      savingCloudToken: false,
+      runningCloudTest: false,
+      cloudTestResult: null,
       scannedEnvs: [],
       selectedEnvExe: '',
       customEnvExe: '',
@@ -1845,8 +1942,64 @@ export default {
     async openEnvSettingsModal() {
       this.showEnvModal = true
       this.envInspectionResult = null
-      await this.scanAvailableEnvironments()
-      await this.loadProjectEnvironment()
+      this.cloudTestResult = null
+      await Promise.all([
+        this.scanAvailableEnvironments(),
+        this.loadProjectEnvironment(),
+        this.checkCloudStatus(),
+      ])
+    },
+    async checkCloudStatus() {
+      this.checkingCloud = true
+      try {
+        const resp = await fetch('/api/cloud/openbayes/status')
+        if (resp.ok) {
+          this.cloudStatus = await resp.json()
+        }
+      } catch (e) {
+        console.error('获取云端算力状态失败:', e)
+      } finally {
+        this.checkingCloud = false
+      }
+    },
+    async saveCloudToken() {
+      if (!this.cloudToken.trim()) return
+      this.savingCloudToken = true
+      try {
+        const resp = await fetch('/api/cloud/openbayes/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: this.cloudToken.trim() }),
+        })
+        const data = await resp.json()
+        if (data.success) {
+          alert('Token 验证成功！已连接到 OpenBayes / HyperAI 云端算力平台')
+          this.cloudToken = ''
+          await this.checkCloudStatus()
+        } else {
+          alert('Token 验证失败: ' + (data.error || data.message || '未知错误'))
+        }
+      } catch (e) {
+        alert('请求失败: ' + e.message)
+      } finally {
+        this.savingCloudToken = false
+      }
+    },
+    async runCloudTest() {
+      this.runningCloudTest = true
+      this.cloudTestResult = null
+      try {
+        const resp = await fetch('/api/cloud/openbayes/test-run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resource: 'cpu' }),
+        })
+        this.cloudTestResult = await resp.json()
+      } catch (e) {
+        this.cloudTestResult = { success: false, error: e.message }
+      } finally {
+        this.runningCloudTest = false
+      }
     },
     async scanAvailableEnvironments() {
       try {
