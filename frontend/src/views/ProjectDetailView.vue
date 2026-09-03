@@ -1131,19 +1131,71 @@
               </div>
             </div>
 
-            <!-- Token 绑定输入框 -->
-            <div class="form-group" style="margin-bottom: 16px;">
+            <!-- 登录模式切换 -->
+            <div style="margin-bottom: 12px; display: flex; gap: 8px;">
+              <button
+                type="button"
+                :class="cloudAuthMode === 'pwd' ? 'btn-action-primary' : 'btn-secondary'"
+                style="font-size: 11px; padding: 4px 10px;"
+                @click="cloudAuthMode = 'pwd'"
+              >
+                <i class="fa-solid fa-key"></i> 账号密码一键登录 (推荐，无需找令牌)
+              </button>
+              <button
+                type="button"
+                :class="cloudAuthMode === 'token' ? 'btn-action-primary' : 'btn-secondary'"
+                style="font-size: 11px; padding: 4px 10px;"
+                @click="cloudAuthMode = 'token'"
+              >
+                <i class="fa-solid fa-ticket"></i> 访问令牌 (Token) 登录
+              </button>
+            </div>
+
+            <!-- 方式一：账号密码直接登录 -->
+            <div v-if="cloudAuthMode === 'pwd'" class="form-group" style="margin-bottom: 16px; background: var(--bg-surface-1); padding: 12px; border-radius: 6px; border: 1px solid var(--border-default);">
+              <div style="font-size: 11.5px; color: var(--text-secondary); margin-bottom: 10px;">
+                输入您在 HyperAI / OpenBayes 注册的用户名（或邮箱）与密码，系统将自动换取云端容器凭据：
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center;">
+                <input
+                  v-model="cloudUsername"
+                  type="text"
+                  placeholder="用户名或注册邮箱"
+                  class="form-input"
+                  style="font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;"
+                />
+                <input
+                  v-model="cloudPassword"
+                  type="password"
+                  placeholder="登录密码"
+                  class="form-input"
+                  style="font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;"
+                  @keyup.enter="loginWithCredentials"
+                />
+                <button
+                  class="btn-action-primary"
+                  style="font-size: 12px; padding: 6px 14px; white-space: nowrap;"
+                  :disabled="loggingInWithPwd || !cloudUsername.trim() || !cloudPassword.trim()"
+                  @click="loginWithCredentials"
+                >
+                  {{ loggingInWithPwd ? '登录中...' : '登录并授权' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 方式二：Token 绑定输入框 -->
+            <div v-if="cloudAuthMode === 'token'" class="form-group" style="margin-bottom: 16px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 0;">OpenBayes API Token (免密调度凭据):</label>
-                <a href="https://openbayes.com/console/settings/tokens" target="_blank" rel="noopener noreferrer" style="font-size: 11px; color: var(--accent-science); text-decoration: underline;">
-                  获取免费 Token ↗
+                <label class="form-label" style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 0;">OpenBayes 访问令牌 (Access Token):</label>
+                <a href="https://openbayes.com/console/profile" target="_blank" rel="noopener noreferrer" style="font-size: 11px; color: var(--accent-science); text-decoration: underline;">
+                  在控制台「个人设置」查看令牌 ↗
                 </a>
               </div>
               <div style="display: flex; gap: 8px;">
                 <input
                   v-model="cloudToken"
                   type="password"
-                  placeholder="在此粘贴您的 OpenBayes API Token..."
+                  placeholder="在此粘贴您的 OpenBayes Access Token..."
                   class="form-input"
                   style="flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 6px;"
                 />
@@ -1152,7 +1204,7 @@
                 </button>
               </div>
               <div style="font-size: 11px; color: var(--accent-warning); margin-top: 6px; line-height: 1.4;">
-                💡 <strong>重要提示</strong>：请使用在「访问令牌」页面创建的凭证。请勿使用以 <code>sk-</code> 开头的大模型 API Key（那是用于聊天对话的，无法调度云端容器）。
+                💡 <strong>提示</strong>：请使用在个人设置中创建的「访问令牌」。请勿使用以 <code>sk-</code> 开头的大模型 API Key。如果您不知道令牌在哪里，建议直接切到上方「账号密码一键登录」。
               </div>
             </div>
 
@@ -1724,6 +1776,10 @@ export default {
       csvImporting: false,
       showEnvModal: false,
       envModalTab: 'local',
+      cloudAuthMode: 'pwd',
+      cloudUsername: '',
+      cloudPassword: '',
+      loggingInWithPwd: false,
       cloudStatus: { installed: true, logged_in: false, username: null },
       cloudToken: '',
       checkingCloud: false,
@@ -1963,6 +2019,35 @@ export default {
         console.error('获取云端算力状态失败:', e)
       } finally {
         this.checkingCloud = false
+      }
+    },
+    async loginWithCredentials() {
+      if (!this.cloudUsername.trim() || !this.cloudPassword.trim()) {
+        alert('请输入用户名/邮箱与密码')
+        return
+      }
+      this.loggingInWithPwd = true
+      try {
+        const resp = await fetch('/api/cloud/openbayes/login-credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: this.cloudUsername.trim(),
+            password: this.cloudPassword.trim(),
+          }),
+        })
+        const data = await resp.json()
+        if (data.success) {
+          alert('登录成功！已成功连接到 HyperAI / OpenBayes 云端算力平台')
+          this.cloudPassword = ''
+          await this.checkCloudStatus()
+        } else {
+          alert('登录失败: ' + (data.error || '用户名或密码错误，请检查输入'))
+        }
+      } catch (e) {
+        alert('请求失败: ' + e.message)
+      } finally {
+        this.loggingInWithPwd = false
       }
     },
     async saveCloudToken() {

@@ -115,6 +115,36 @@ class OpenBayesRunner(ExecutionRunner):
                 err_str = "Token 认证失败：密钥无效或已过期。请前往 https://openbayes.com/console/settings/tokens 创建并复制「访问令牌 (Access Token)」。"
             return {"success": False, "error": err_str}
 
+    @staticmethod
+    def login_with_credentials(username: str, password: str) -> dict[str, Any]:
+        """通过用户名/邮箱与密码登录 OpenBayes 并自动保存获取的 Access Token"""
+        username = username.strip()
+        password = password.strip()
+        if not username or not password:
+            return {"success": False, "error": "用户名和密码不能为空"}
+
+        try:
+            from bayes.model.file.settings import BayesSettings
+            from bayes.client.base import BayesGQLClient
+            from bayes.client import user_client
+
+            bayes_settings = BayesSettings()
+            default_env = bayes_settings.default_env
+            if not default_env:
+                return {"success": False, "error": "OpenBayes 配置文件未就绪"}
+
+            gql_client = BayesGQLClient(default_env.graphQL, None)
+            result = user_client.login(gql_client, username, password)
+            bayes_settings.login(result.username, result.token)
+            return {
+                "success": True,
+                "message": f"成功登入 OpenBayes (用户: {result.username})",
+                "username": result.username,
+            }
+        except Exception as e:
+            err_str = str(e)
+            return {"success": False, "error": f"登录失败: {err_str}"}
+
     def run_code(
         self,
         code: str,

@@ -200,6 +200,11 @@ class OpenBayesAuthRequest(BaseModel):
     token: str
 
 
+class OpenBayesCredentialRequest(BaseModel):
+    username: str
+    password: str
+
+
 class OpenBayesRunRequest(BaseModel):
     code: Optional[str] = None
     resource: Optional[str] = "cpu"
@@ -219,6 +224,13 @@ def auth_openbayes(req: OpenBayesAuthRequest):
     """绑定 OpenBayes / HyperAI API Token"""
     from backend.integrations.execution.openbayes_runner import openbayes_runner
     return openbayes_runner.login_with_token(req.token)
+
+
+@app.post("/api/cloud/openbayes/login-credentials")
+def login_openbayes_credentials(req: OpenBayesCredentialRequest):
+    """通过 HyperAI / OpenBayes 账号密码登录并自动换取 Token"""
+    from backend.integrations.execution.openbayes_runner import openbayes_runner
+    return openbayes_runner.login_with_credentials(req.username, req.password)
 
 
 @app.post("/api/cloud/openbayes/test-run")
