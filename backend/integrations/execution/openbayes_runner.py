@@ -79,38 +79,41 @@ class OpenBayesRunner(ExecutionRunner):
 
     @staticmethod
     def login_with_token(token: str) -> dict[str, Any]:
-        """通过 API Token 登录 OpenBayes"""
+        """通过 API Token 登录 OpenBayes（直接调用 SDK 校验，秒级响应，避免 CLI 阻塞）"""
         token = token.strip()
         if not token:
             return {"success": False, "error": "Token 不能为空"}
 
-        bayes_bin = shutil.which("bayes")
-        if not bayes_bin:
-            return {"success": False, "error": "系统未找到 bayes 可执行程序，请先安装 openbayes-cli"}
+        # 友好区分：如果用户误填了 HyperAI 的大模型 API Key (sk-...)
+        if token.startswith("sk-"):
+            return {
+                "success": False,
+                "error": "您填写的凭证以 'sk-' 开头，这是 HyperAI 的「大模型推理 API Key」（用于对话模型），并非「算力容器调度令牌」。\n\n请前往 OpenBayes 控制台「个人设置 -> 访问令牌」(https://openbayes.com/console/settings/tokens) 创建并复制容器访问令牌。",
+            }
 
         try:
-            # 写入环境变量并执行登录
-            env = os.environ.copy()
-            env["OPENBAYES_TOKEN"] = token
-            res = subprocess.run(
-                [bayes_bin, "login", token],
-                capture_output=True,
-                text=True,
-                timeout=12,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-            )
-            stdout = res.stdout.strip()
-            stderr = res.stderr.strip()
-            success = res.returncode == 0 or "已成功登入" in stdout or "success" in stdout.lower()
+            from bayes.model.file.settings import BayesSettings
+            from bayes.client.base import BayesGQLClient
+            from bayes.client import user_client
+
+            bayes_settings = BayesSettings()
+            default_env = bayes_settings.default_env
+            if not default_env:
+                return {"success": False, "error": "OpenBayes 配置文件未就绪"}
+
+            gql_client = BayesGQLClient(default_env.graphQL, token)
+            result = user_client.login_with_token(gql_client, token)
+            bayes_settings.login(result.username, token)
             return {
-                "success": success,
-                "message": stdout or stderr or "登录完成",
-                "raw_output": f"{stdout}\n{stderr}".strip(),
+                "success": True,
+                "message": f"成功登入 OpenBayes (用户: {result.username})",
+                "username": result.username,
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            err_str = str(e)
+            if "UNAUTHENTICATED" in err_str or "没有登录" in err_str:
+                err_str = "Token 认证失败：密钥无效或已过期。请前往 https://openbayes.com/console/settings/tokens 创建并复制「访问令牌 (Access Token)」。"
+            return {"success": False, "error": err_str}
 
     def run_code(
         self,

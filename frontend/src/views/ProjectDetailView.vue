@@ -1151,6 +1151,9 @@
                   {{ savingCloudToken ? '验证中...' : '验证并绑定' }}
                 </button>
               </div>
+              <div style="font-size: 11px; color: var(--accent-warning); margin-top: 6px; line-height: 1.4;">
+                💡 <strong>重要提示</strong>：请使用在「访问令牌」页面创建的凭证。请勿使用以 <code>sk-</code> 开头的大模型 API Key（那是用于聊天对话的，无法调度云端容器）。
+              </div>
             </div>
 
             <!-- 自动关停承诺与计费安全 -->
